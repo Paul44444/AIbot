@@ -1,3 +1,6 @@
+# Thanks
+Thanks to Hal for your support, we will keep improving the website together.
+
 # React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
