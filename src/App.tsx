@@ -15,7 +15,13 @@ function App() {
 
     return (
         <>
-            <Chat ref={chatRef} loadedMessages={loadedMessages} selectedTopic={selectedTopic} onTopicChange={setSelectedTopic} />
+            <Chat
+                ref={chatRef}
+                loadedMessages={loadedMessages}
+                selectedTopic={selectedTopic}
+                onTopicChange={setSelectedTopic}
+                pauseSceneStartup={showConversationGraph || showTopicGraph}
+            />
 
             <button
                 className="conversationGraphButton"

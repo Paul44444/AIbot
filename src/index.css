@@ -255,6 +255,14 @@ button:focus-visible {
     display: block;
     z-index: 0;
 }
+.sceneView {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 0;
+    overflow: hidden;
+}
 .sceneView:focus { outline: none; }
 
 .avatarSwitcher {

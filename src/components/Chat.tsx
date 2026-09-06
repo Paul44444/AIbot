@@ -1,23 +1,10 @@
-import { Suspense, useImperativeHandle, useState } from "react";
+import { lazy, Suspense, useImperativeHandle, useState } from "react";
 import type { Ref } from "react";
 import type { Message } from "../types/chat";
-//import { Canvas, useFrame } from '@react-three/fiber'
-
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
-
-import * as THREE from "three";
-//import { useFBX } from "@react-three/drei";
-//import { useFBX } from "@react-three/drei";
-
-//import { useGLTF, useFBX, useAnimations } from '@react-three/drei'
-import { Environment, OrbitControls, useGLTF } from '@react-three/drei'
 
 //08062026A import { useEffect, useRef } from 'react'
 import { useEffect, useRef } from 'react'
 
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { VRMLoaderPlugin, VRM } from "@pixiv/three-vrm";
 import { upsertConversationNode } from "../data/conversationStorage";
 import { Mic, MicOff, Lock, Check, LoaderCircle, Pause, Play } from "lucide-react";
 import { useTopicProgress } from "../hooks/useTopicProgress";
@@ -30,8 +17,6 @@ import {
     type Topic,
 } from "../data/topicTree";
 
-void VRMLoaderPlugin
-
 //upsertConversationNode(
 //    conversationNodeIdRef.current,
 //    currentMessages
@@ -41,10 +26,6 @@ void VRMLoaderPlugin
 //11062026   from "../utils/loadMixamoAnimation";
 
 //import { startRealtimeVoiceSession } from "../utils/realtimeVoice";
-import {
-    VRMAnimationLoaderPlugin,
-    createVRMAnimationClip,
-} from "@pixiv/three-vrm-animation";
 import { useChatLogic }
     from "../hooks/useChatLogic";
 import {
@@ -491,522 +472,6 @@ function ChatInput({
         );
 }
 
-function SceneView({
-                       isSpeaking,
-                       expression,
-                       avatarUrl,
-                   }: {
-    isSpeaking: boolean;
-    expression: string;
-    avatarUrl: string;
-}) {
-    const [roomReady, setRoomReady] = useState(false);
-    const [readyAvatar, setReadyAvatar] = useState<string | null>(null);
-    const revealed = useRef(false);
-
-    useEffect(() => {
-        if (revealed.current || !roomReady || readyAvatar !== avatarUrl) return;
-        // Allow the mounted avatar to render before revealing the live scene.
-        let secondFrame = 0;
-        const firstFrame = requestAnimationFrame(() => {
-            secondFrame = requestAnimationFrame(() => {
-                document.documentElement.dataset.sceneReady = "true";
-                revealed.current = true;
-            });
-        });
-        return () => {
-            cancelAnimationFrame(firstFrame);
-            cancelAnimationFrame(secondFrame);
-        };
-    }, [roomReady, readyAvatar, avatarUrl]);
-
-    return (
-        <div
-            className="sceneView"
-            tabIndex={0}
-            aria-label="3D room. Click here, then use WASD or arrow keys to walk."
-            onPointerDownCapture={(event) => event.currentTarget.focus()}
-            style={{
-                position: "fixed",
-                top: 0,
-                inset: 0,
-                width: "100vw",
-                height: "100vh",
-                zIndex: 0,
-                overflow: "hidden",
-            }}
-        >
-            <Canvas
-                className="backgroundCanvas1"
-                dpr={[1, 1.5]}
-                style={{
-                    width: "100%",
-                    height: "100%",
-                    display: "block",
-                }}
-                camera={{
-                    position: [0.5, -0.3, 0.5],
-                }}
-            >
-                <ambientLight intensity={2.0} />
-                <directionalLight
-                    position={[0.0, -2.6, 0]}
-                    intensity={0.0}
-                />
-
-                <Room onReady={setRoomReady} />
-
-                <Character
-                    isSpeaking={isSpeaking}
-                    expression={expression}
-                    avatarUrl={avatarUrl}
-                    onReady={setReadyAvatar}
-                />
-
-                <Suspense fallback={null}>
-                    <Environment preset="city" />
-                </Suspense>
-
-                <OrbitControls
-                    target={[0, -0.25, 0]}
-                    enablePan
-                    enableZoom
-                    enableRotate
-                />
-
-            </Canvas>
-        </div>
-    );
-}
-
-function Character({
-                       isSpeaking,
-                       expression,
-                       avatarUrl,
-                       onReady,
-                   }: {
-    isSpeaking: boolean;
-    expression: string;
-    avatarUrl: string;
-    onReady: (url: string) => void;
-}) {
-
-    const group = useRef<THREE.Group>(null)
-    const [vrm, setVrm] = useState<VRM | null>(null)
-    useEffect(() => {
-        if (vrm && vrm.scene.userData.loadedAvatarUrl === avatarUrl) onReady(avatarUrl);
-    }, [vrm, avatarUrl, onReady]);
-    const mixerRef = useRef<THREE.AnimationMixer | null>(null);
-    const pressedKeysRef = useRef(new Set<string>());
-    const movingRef = useRef(false);
-    const movementVectorRef = useRef(new THREE.Vector2());
-    //const idleAnimation = useFBX("/animations/idle.fbx");
-    //const mixerRef =
-    //    useRef<THREE.AnimationMixer | null>(null);
-    //const speakingUntilRef = useRef(0);
-    const { size } = useThree();
-    const characterX =
-        size.width >= 700 && size.width < 1300
-            ? THREE.MathUtils.clamp(
-                (1300 - size.width) / 1000,
-                0,
-                0.6
-            )
-            : 0;
-    const characterRotationY =
-        Math.PI + 1.0 + (avatarUrl === AVATAR_URLS.jenny ? Math.PI : 0);
-    const characterScale = avatarUrl === AVATAR_URLS.jenny ? 1.12 : 1;
-
-    useEffect(() => {
-        const updateKey = (event: KeyboardEvent, pressed: boolean) => {
-            const target = event.target as HTMLElement | null;
-            if (
-                target?.matches("input, textarea, select") ||
-                target?.isContentEditable
-            ) return;
-
-            const keyByCode: Record<string, string> = {
-                KeyW: "w", KeyA: "a", KeyS: "s", KeyD: "d",
-                ArrowUp: "arrowup", ArrowLeft: "arrowleft",
-                ArrowDown: "arrowdown", ArrowRight: "arrowright",
-            };
-            const key = keyByCode[event.code] ?? event.key.toLowerCase();
-            if (!["w", "a", "s", "d", "arrowup", "arrowleft", "arrowdown", "arrowright"].includes(key)) return;
-
-            event.preventDefault();
-            if (pressed) pressedKeysRef.current.add(key);
-            else pressedKeysRef.current.delete(key);
-        };
-
-        const handleKeyDown = (event: KeyboardEvent) => updateKey(event, true);
-        const handleKeyUp = (event: KeyboardEvent) => updateKey(event, false);
-        const clearKeys = () => pressedKeysRef.current.clear();
-
-        window.addEventListener("keydown", handleKeyDown);
-        window.addEventListener("keyup", handleKeyUp);
-        window.addEventListener("blur", clearKeys);
-
-        return () => {
-            window.removeEventListener("keydown", handleKeyDown);
-            window.removeEventListener("keyup", handleKeyUp);
-            window.removeEventListener("blur", clearKeys);
-        };
-    }, []);
-
-    useEffect(() => {
-        let cancelled = false;
-        const loader = new GLTFLoader();
-
-        loader.register((parser) => new VRMLoaderPlugin(parser));
-        setVrm(null);
-        mixerRef.current = null;
-
-        loader.load(
-            avatarUrl,
-
-            (gltf) => {
-
-                const loadedVrm =
-                    gltf.userData.vrm as VRM;
-
-                if (cancelled) return;
-
-                console.log("VRM:", loadedVrm)
-                console.log("Expression manager:", loadedVrm.expressionManager)
-                console.log(
-                    "Expressions:",
-                    loadedVrm.expressionManager
-                        ? Object.keys(loadedVrm.expressionManager.expressionMap)
-                        : "no expression manager"
-                )
-                loadedVrm.scene.userData.loadedAvatarUrl = avatarUrl;
-                setVrm(loadedVrm);
-
-                (async () => {
-
-                    (async () => {
-                        const animationLoader = new GLTFLoader();
-
-                        animationLoader.register((parser) =>
-                            new VRMAnimationLoaderPlugin(parser)
-                        );
-
-                        const animationGltf =
-                            await animationLoader.loadAsync("/animations/idle.vrma");
-
-                        if (cancelled) return;
-
-                        const vrmAnimation =
-                            animationGltf.userData.vrmAnimations?.[0];
-
-                        if (!vrmAnimation) {
-                            console.error("No VRM animation found in VRMA_XY.vrma");
-                            return;
-                        }
-
-                        const clip =
-                            createVRMAnimationClip(vrmAnimation, loadedVrm);
-
-                        const mixer =
-                            new THREE.AnimationMixer(loadedVrm.scene);
-
-                        mixerRef.current = mixer;
-
-                        const action =
-                            mixer.clipAction(clip);
-
-                        action.play();
-                    })();
-                })();
-                /*
-                const mixer =
-                    new THREE.AnimationMixer(loadedVrm.scene);
-
-                mixerRef.current = mixer;
-
-                if (idleAnimation.animations.length > 0) {
-
-                    const action =
-                        mixer.clipAction(idleAnimation.animations[0]);
-
-                    action.play();
-                }*/
-
-                // TEST EXPRESSION:
-                //loadedVrm.expressionManager
-                //    ?.setValue("blink", 1.0);
-
-            },
-            undefined,
-            (error) => console.error(`Failed to load avatar ${avatarUrl}:`, error)
-        )
-
-            // if (!speakingText) return;
-            //
-            // const seconds = Math.min(
-            //     8,
-            //     Math.max(1.5, speakingText.length * 0.045)
-            // );
-            //
-            // speakingUntilRef.current =
-            //     performance.now() / 1000 + seconds;
-
-        return () => {
-            cancelled = true;
-            mixerRef.current?.stopAllAction();
-            mixerRef.current = null;
-        };
-    }, [avatarUrl]);
-
-    useFrame((_, delta) => {
-        if (!vrm) return
-
-        const character = group.current;
-        if (character) {
-            const keys = pressedKeysRef.current;
-            const moveX = Number(keys.has("d") || keys.has("arrowright")) - Number(keys.has("a") || keys.has("arrowleft"));
-            const moveZ = Number(keys.has("s") || keys.has("arrowdown")) - Number(keys.has("w") || keys.has("arrowup"));
-            const moving = moveX !== 0 || moveZ !== 0;
-            movingRef.current = moving;
-
-            if (moving) {
-                const direction = movementVectorRef.current.set(moveX, moveZ).normalize();
-                const speed = 1.1;
-                character.position.x = THREE.MathUtils.clamp(
-                    character.position.x + direction.x * speed * delta,
-                    -1.2,
-                    1.8
-                );
-                character.position.z = THREE.MathUtils.clamp(
-                    character.position.z + direction.y * speed * delta,
-                    -1.4,
-                    1.2
-                );
-
-                const avatarFacingOffset = 1.0 + (avatarUrl === AVATAR_URLS.jenny ? Math.PI : 0);
-                const desiredRotation = Math.atan2(direction.x, direction.y) + avatarFacingOffset;
-                character.rotation.y = THREE.MathUtils.lerp(
-                    character.rotation.y,
-                    desiredRotation,
-                    1 - Math.exp(-12 * delta)
-                );
-
-            }
-        }
-
-        const t = performance.now() / 1000
-        //const isSpeaking = t < speakingUntilRef.current;
-
-        vrm.expressionManager?.setValue("happy", 0.0)
-
-        //A const mouth =
-        //A    (Math.sin(t * 6.0) + 1.0) / 2.0
-
-        const mouth = isSpeaking
-            ? 0.15 + 0.65 * Math.abs(Math.sin(t * 10))
-            : 0.0;
-
-        vrm.expressionManager?.setValue("aa", mouth)
-        //17062026 vrm.expressionManager?.setValue("happy", 0.2);
-
-        const blink =
-            Math.sin(t * 3.0) > 0.97 ? 1.0 : 0.0
-
-        vrm.expressionManager?.setValue("blink", blink)
-
-        if (mixerRef.current) {
-            mixerRef.current.update(delta);
-        }
-
-        if (movingRef.current) {
-            const stride = Math.sin(t * 9) * 0.34;
-            vrm.humanoid.getNormalizedBoneNode("leftUpperLeg")?.rotateX(stride);
-            vrm.humanoid.getNormalizedBoneNode("rightUpperLeg")?.rotateX(-stride);
-            vrm.humanoid.getNormalizedBoneNode("leftUpperArm")?.rotateX(-stride * 0.65);
-            vrm.humanoid.getNormalizedBoneNode("rightUpperArm")?.rotateX(stride * 0.65);
-        }
-
-        vrm.expressionManager?.setValue("happy", 0.0);
-        vrm.expressionManager?.setValue("sad", 0.0);
-        vrm.expressionManager?.setValue("angry", 0.0);
-        vrm.expressionManager?.setValue("relaxed", 0.0);
-        vrm.expressionManager?.setValue("Surprised", 0.0);
-        if (expression === "happy") {
-            vrm.expressionManager?.setValue("happy", 0.5);
-        } else if (expression === "sad") {
-            vrm.expressionManager?.setValue("sad", 1.0);
-        } else if (expression === "angry") {
-            vrm.expressionManager?.setValue("angry", 1.0);
-        } else if (expression === "Surprised") {
-            vrm.expressionManager?.setValue("Surprised", 1.0);
-        } else {
-            vrm.expressionManager?.setValue("relaxed", 0.2);
-        }
-
-        vrm.update(delta)
-    })
-
-
-    if (!vrm) return null;
-
-    return vrm ? (
-        <group ref={group} rotation={[0, characterRotationY, 0]} position={[characterX, -2.0, 0.0]}>
-            <primitive object={vrm.scene} scale={characterScale} />
-        </group>
-    ) : null;
-
-    /* 08062026A
-    const fbx = useGLTF("/model/vrm1.glb")//useFBX(modelPath)//('/model/Idle.fbx')
-
-    const { actions, names } =
-        useAnimations(fbx.animations, group)
-
-    useEffect(() => {
-
-        console.log(fbx.animations)
-        console.log(names)
-        console.log(actions)
-
-        if (names.length > 0) {
-
-            actions[names[0]]
-                ?.reset()
-                .fadeIn(0.5)
-                .play()
-        }
-
-    }, [actions, names, fbx])
-    */
-
-    /*const { scene, animations } = useFBX('/model/Idle.fbx')//useGLTF('/model/boy2idle.glb')*/
-    //const { path1 } = '/model/human11.vrm';
-    const { scene } = useGLTF('/model/boy2idle.glb')//'/model/human11.vrm')//useGLTF('/model/boy2idle.glb')
-    void scene;
-    /*const { actions, names } = useAnimations(animations, group)
-
-    useEffect(() => {
-
-        console.log(names)
-
-        if (names.length > 0) {
-            actions[names[0]]?.play()
-        }
-
-    }, [actions, names])*/
-
-    //23052026 const gltf = useGLTF('/public/model/boy2idle.glb') //'/models/character.glb'
-    //23052026 return <primitive object={gltf.scene} position={[0, -5, 0]} scale={3.5}/>
-    /*
-    return (
-        <group ref={group}>
-            <primitive
-                object={scene}//{fbx}//scene
-                position={[0, -2.6, 0]}
-                scale={1.0}//{0.025}//{3.5}
-            />
-        </group>
-    )
-    return vrm ? (
-        <primitive
-            object={vrm.scene}
-            rotation={[0, Math.PI + 1.0, 0]}
-            position={[characterX, -2.0, 0.0]}
-            scale={1}
-        />
-    ) : null;*/
-
-}
-/*120262026
-async function speakText(
-    text: string,
-    onStart: () => void,
-    onEnd: () => void
-) {
-    const response = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-    });
-
-    if (!response.ok) {
-        throw new Error(`TTS error ${response.status}: ${await response.text()}`);
-    }
-
-    const audioBlob = await response.blob();
-    const audioUrl = URL.createObjectURL(audioBlob);
-    const audio = new Audio(audioUrl);
-
-    audio.onplay = onStart;
-    audio.onended = () => {
-        onEnd();
-        URL.revokeObjectURL(audioUrl);
-    };
-
-    await audio.play();
-}*/
-
-function Room({ onReady }: { onReady: (ready: boolean) => void }) {
-    const { scene, gl } = useThree();
-
-    useEffect(() => {
-        const spark = new SparkRenderer({
-            renderer: gl,
-            lodSplatScale: 0.06,
-            lodRenderScale: 0.15,
-        });
-
-        let reportedReady = false;
-        const previousAfterRender = spark.onAfterRender.bind(spark);
-        spark.onAfterRender = (...args) => {
-            previousAfterRender(...args);
-            // A RAD manifest can load before any room geometry is visible.
-            if (!reportedReady && spark.activeSplats > 0) {
-                reportedReady = true;
-                onReady(true);
-            }
-        };
-
-        scene.add(spark);
-
-        const room = new SplatMesh({
-            url: "/model/room-lod.rad",
-            paged: true,
-
-            onLoad: () => {
-                console.log("RAD room loaded");
-            },
-
-            onProgress: (event) => {
-                if (event.lengthComputable) {
-                    console.log(
-                        `Room loading: ${Math.round(
-                            (event.loaded / event.total) * 100
-                        )}%`
-                    );
-                } else {
-                    console.log(`Room loading: ${event.loaded} bytes`);
-                }
-            },
-        });
-
-        room.position.set(1.5, -0.86, -0.2); //(-2.4, -0.86, -3.2);
-        room.rotation.set(0, 1.5, 0);
-        room.scale.setScalar(1.0);
-
-        scene.add(room);
-
-        return () => {
-            scene.remove(room);
-            scene.remove(spark);
-            scene.remove(spark);
-            room.dispose();
-            spark.dispose();
-        };
-    }, [scene, gl, onReady]);
-
-    return null;
-}
-
 function getTopicInstructions(topicId: string): string {
     const topicGuides: Record<string, string> = {
         greetings: "Focus on greetings and farewells. Practice hello, goodbye, good morning, good evening, and 'how are you' expressions. Introduce basic polite phrases.",
@@ -1095,7 +560,10 @@ type ChatProps = {
     loadedMessages?: ChatMessage[] | null;
     selectedTopic?: string;
     onTopicChange?: (topicId: string) => void;
+    pauseSceneStartup?: boolean;
 };
+
+const LazySceneView = lazy(() => import("./SceneView"));
 
 type AvatarId = "male" | "jenny";
 
@@ -1149,7 +617,13 @@ function limitTextToSentences(text: string, maximumSentences: number): string {
     return text.trim();
 }
 
-export default function Chat({ ref, loadedMessages, selectedTopic = FREE_CONVERSATION_TOPIC_ID, onTopicChange }: ChatProps) {
+export default function Chat({
+    ref,
+    loadedMessages,
+    selectedTopic = FREE_CONVERSATION_TOPIC_ID,
+    onTopicChange,
+    pauseSceneStartup = false,
+}: ChatProps) {
     //1206026 const [messages, setMessages] = useState<Message[]>([]);
     //12062026A const [speakingText, setSpeakingText] = useState<string | null>(null);
     //1206026 const [input, setInput] = useState<string>("");
@@ -1164,8 +638,42 @@ export default function Chat({ ref, loadedMessages, selectedTopic = FREE_CONVERS
         useState(false);
     const [currentExpression, setCurrentExpression] =
         useState("relaxed");
+    const [sceneStarted, setSceneStarted] = useState(false);
     void setCurrentExpression;
     void detectExpression;
+
+    useEffect(() => {
+        if (sceneStarted || pauseSceneStartup || showLanguagePanel) return;
+
+        let startTimer = 0;
+        let idleCallback = 0;
+        const scheduleAfterQuietPeriod = () => {
+            window.clearTimeout(startTimer);
+            if (idleCallback && "cancelIdleCallback" in window) window.cancelIdleCallback(idleCallback);
+            startTimer = window.setTimeout(() => {
+                if ("requestIdleCallback" in window) {
+                    idleCallback = window.requestIdleCallback(() => setSceneStarted(true));
+                } else {
+                    setSceneStarted(true);
+                }
+            }, 2_500);
+        };
+
+        scheduleAfterQuietPeriod();
+        window.addEventListener("pointerdown", scheduleAfterQuietPeriod, { passive: true });
+        window.addEventListener("pointermove", scheduleAfterQuietPeriod, { passive: true });
+        window.addEventListener("keydown", scheduleAfterQuietPeriod);
+        window.addEventListener("focusin", scheduleAfterQuietPeriod);
+
+        return () => {
+            window.clearTimeout(startTimer);
+            if (idleCallback && "cancelIdleCallback" in window) window.cancelIdleCallback(idleCallback);
+            window.removeEventListener("pointerdown", scheduleAfterQuietPeriod);
+            window.removeEventListener("pointermove", scheduleAfterQuietPeriod);
+            window.removeEventListener("keydown", scheduleAfterQuietPeriod);
+            window.removeEventListener("focusin", scheduleAfterQuietPeriod);
+        };
+    }, [sceneStarted, pauseSceneStartup, showLanguagePanel]);
 
     const { progress, incrementTopicConversation, resetProgress, markTopicVisited } =
         useTopicProgress();
@@ -1809,11 +1317,15 @@ ${topicGuidance}
 
     return (
         <div style={{ maxWidth: 1800, margin: "0 auto", padding: 20}}>
-            <SceneView
-                isSpeaking={speakingText !== null || realtimeSpeaking}
-                expression={currentExpression}
-                avatarUrl={AVATAR_URLS[avatar]}
-            />
+            {sceneStarted && (
+                <Suspense fallback={null}>
+                    <LazySceneView
+                        isSpeaking={speakingText !== null || realtimeSpeaking}
+                        expression={currentExpression}
+                        avatarUrl={AVATAR_URLS[avatar]}
+                    />
+                </Suspense>
+            )}
 
             <div className="avatarSwitcher" aria-label="Choose character">
                 <button
