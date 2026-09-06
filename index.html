@@ -10,7 +10,7 @@
     <link rel="prefetch" as="fetch" href="/animations/idle.vrma" crossorigin="anonymous" />
     <link rel="prefetch" as="fetch" href="/model/room-lod.rad" crossorigin="anonymous" />
     <style>
-      html, body { margin: 0; background: #79503c; }
+      html, body { margin: 0; background: #79503c; --scene-progress: 7%; }
       /* Visible before JavaScript; the live UI remains above this poster. */
       .sceneAtmosphere {
         position: fixed;
@@ -28,18 +28,45 @@
         object-fit: cover;
         object-position: 50% 50%;
       }
+      .sceneLoading {
+        position: absolute;
+        right: 24px;
+        bottom: 24px;
+        width: 170px;
+        height: 4px;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.42);
+        border-radius: 999px;
+        background: rgba(37, 24, 23, 0.38);
+        box-shadow: 0 4px 18px rgba(33, 15, 11, 0.26);
+        backdrop-filter: blur(5px);
+      }
+      .sceneLoading span {
+        display: block;
+        width: var(--scene-progress);
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #f2bfb3, #fff2da);
+        box-shadow: 0 0 9px rgba(255, 230, 207, 0.72);
+        transition: width 350ms ease;
+      }
       html[data-scene-ready="true"] .sceneAtmosphere {
         opacity: 0;
         visibility: hidden;
       }
       @media (prefers-reduced-motion: reduce) {
         .sceneAtmosphere { transition: none; }
+        .sceneLoading span { transition: none; }
+      }
+      @media (max-width: 700px) {
+        .sceneLoading { right: 12px; bottom: 68px; width: 120px; }
       }
     </style>
   </head>
   <body>
     <div class="sceneAtmosphere" aria-hidden="true">
       <img src="/images/jenny-room-preview.webp" alt="" fetchpriority="high" />
+      <div class="sceneLoading"><span></span></div>
     </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>

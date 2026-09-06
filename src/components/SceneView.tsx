@@ -14,29 +14,41 @@ type SceneViewProps = {
     isSpeaking: boolean;
     expression: string;
     avatarUrl: string;
+    onProgress: (progress: number) => void;
 };
 
-export default function SceneView({ isSpeaking, expression, avatarUrl }: SceneViewProps) {
+export default function SceneView({ isSpeaking, expression, avatarUrl, onProgress }: SceneViewProps) {
     const [roomReady, setRoomReady] = useState(false);
+    const [roomProgress, setRoomProgress] = useState(0);
     const [readyAvatar, setReadyAvatar] = useState<string | null>(null);
+    const [avatarProgress, setAvatarProgress] = useState(0);
     const revealed = useRef(false);
+
+    useEffect(() => {
+        onProgress(Math.min(0.96, 0.3 + avatarProgress * 0.45 + roomProgress * 0.21));
+    }, [avatarProgress, roomProgress, onProgress]);
 
     useEffect(() => {
         if (revealed.current || !roomReady || readyAvatar !== avatarUrl) return;
 
+        onProgress(1);
+        let revealTimer = 0;
         let secondFrame = 0;
         const firstFrame = requestAnimationFrame(() => {
             secondFrame = requestAnimationFrame(() => {
-                document.documentElement.dataset.sceneReady = "true";
-                revealed.current = true;
+                revealTimer = window.setTimeout(() => {
+                    document.documentElement.dataset.sceneReady = "true";
+                    revealed.current = true;
+                }, 220);
             });
         });
 
         return () => {
+            window.clearTimeout(revealTimer);
             cancelAnimationFrame(firstFrame);
             cancelAnimationFrame(secondFrame);
         };
-    }, [roomReady, readyAvatar, avatarUrl]);
+    }, [roomReady, readyAvatar, avatarUrl, onProgress]);
 
     return (
         <div
@@ -52,12 +64,13 @@ export default function SceneView({ isSpeaking, expression, avatarUrl }: SceneVi
             >
                 <ambientLight intensity={2} />
                 <directionalLight position={[0, -2.6, 0]} intensity={0} />
-                <Room onReady={setRoomReady} />
+                <Room onReady={setRoomReady} onProgress={setRoomProgress} />
                 <Character
                     isSpeaking={isSpeaking}
                     expression={expression}
                     avatarUrl={avatarUrl}
                     onReady={setReadyAvatar}
+                    onProgress={setAvatarProgress}
                 />
                 <Suspense fallback={null}>
                     <Environment preset="city" />
@@ -78,7 +91,11 @@ function Character({
     expression,
     avatarUrl,
     onReady,
-}: SceneViewProps & { onReady: (url: string) => void }) {
+    onProgress,
+}: Omit<SceneViewProps, "onProgress"> & {
+    onReady: (url: string) => void;
+    onProgress: (progress: number) => void;
+}) {
     const group = useRef<THREE.Group>(null);
     const [vrm, setVrm] = useState<VRM | null>(null);
     const mixerRef = useRef<THREE.AnimationMixer | null>(null);
@@ -134,12 +151,14 @@ function Character({
         loader.register((parser) => new VRMLoaderPlugin(parser));
         setVrm(null);
         mixerRef.current = null;
+        onProgress(0.04);
 
         loader.load(avatarUrl, (gltf) => {
             const loadedVrm = gltf.userData.vrm as VRM;
             if (cancelled) return;
 
             loadedVrm.scene.userData.loadedAvatarUrl = avatarUrl;
+            onProgress(1);
             setVrm(loadedVrm);
 
             const loadIdleAnimation = async () => {
@@ -155,14 +174,18 @@ function Character({
                 mixer.clipAction(createVRMAnimationClip(animation, loadedVrm)).play();
             };
             void loadIdleAnimation().catch((error) => console.error("Idle animation failed:", error));
-        }, undefined, (error) => console.error(`Failed to load avatar ${avatarUrl}:`, error));
+        }, (event) => {
+            if (!cancelled && event.lengthComputable && event.total > 0) {
+                onProgress(Math.min(0.96, 0.04 + (event.loaded / event.total) * 0.92));
+            }
+        }, (error) => console.error(`Failed to load avatar ${avatarUrl}:`, error));
 
         return () => {
             cancelled = true;
             mixerRef.current?.stopAllAction();
             mixerRef.current = null;
         };
-    }, [avatarUrl]);
+    }, [avatarUrl, onProgress]);
 
     useFrame((_, delta) => {
         if (!vrm) return;
@@ -217,7 +240,13 @@ function Character({
     );
 }
 
-function Room({ onReady }: { onReady: (ready: boolean) => void }) {
+function Room({
+    onReady,
+    onProgress,
+}: {
+    onReady: (ready: boolean) => void;
+    onProgress: (progress: number) => void;
+}) {
     const { scene, gl } = useThree();
 
     useEffect(() => {
@@ -234,11 +263,21 @@ function Room({ onReady }: { onReady: (ready: boolean) => void }) {
             // Reveal after more than the very first streamed room fragment.
             if (!reportedReady && spark.activeSplats >= 100_000) {
                 reportedReady = true;
+                onProgress(1);
                 onReady(true);
             }
         };
 
-        const room = new SplatMesh({ url: "/model/room-lod.rad", paged: true });
+        const room = new SplatMesh({
+            url: "/model/room-lod.rad",
+            paged: true,
+            onLoad: () => onProgress(0.55),
+            onProgress: (event) => {
+                if (event.lengthComputable && event.total > 0) {
+                    onProgress(Math.min(0.55, 0.08 + (event.loaded / event.total) * 0.47));
+                }
+            },
+        });
         room.position.set(1.5, -0.86, -0.2);
         room.rotation.set(0, 1.5, 0);
         room.scale.setScalar(1);
@@ -251,7 +290,7 @@ function Room({ onReady }: { onReady: (ready: boolean) => void }) {
             room.dispose();
             spark.dispose();
         };
-    }, [scene, gl, onReady]);
+    }, [scene, gl, onReady, onProgress]);
 
     return null;
 }

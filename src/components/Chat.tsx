@@ -565,6 +565,11 @@ type ChatProps = {
 
 const LazySceneView = lazy(() => import("./SceneView"));
 
+function updateSceneLoadingProgress(progress: number) {
+    const percentage = Math.round(Math.min(1, Math.max(0, progress)) * 100);
+    document.documentElement.style.setProperty("--scene-progress", `${percentage}%`);
+}
+
 type AvatarId = "male" | "jenny";
 
 const AVATAR_URLS: Record<AvatarId, string> = {
@@ -643,6 +648,10 @@ export default function Chat({
     void detectExpression;
 
     useEffect(() => {
+        updateSceneLoadingProgress(0.14);
+    }, []);
+
+    useEffect(() => {
         if (sceneStarted || pauseSceneStartup || showLanguagePanel) return;
 
         let startTimer = 0;
@@ -652,8 +661,12 @@ export default function Chat({
             if (idleCallback && "cancelIdleCallback" in window) window.cancelIdleCallback(idleCallback);
             startTimer = window.setTimeout(() => {
                 if ("requestIdleCallback" in window) {
-                    idleCallback = window.requestIdleCallback(() => setSceneStarted(true));
+                    idleCallback = window.requestIdleCallback(() => {
+                        updateSceneLoadingProgress(0.24);
+                        setSceneStarted(true);
+                    });
                 } else {
+                    updateSceneLoadingProgress(0.24);
                     setSceneStarted(true);
                 }
             }, 800);
@@ -1321,6 +1334,7 @@ ${topicGuidance}
                         isSpeaking={speakingText !== null || realtimeSpeaking}
                         expression={currentExpression}
                         avatarUrl={AVATAR_URLS[avatar]}
+                        onProgress={updateSceneLoadingProgress}
                     />
                 </Suspense>
             )}
