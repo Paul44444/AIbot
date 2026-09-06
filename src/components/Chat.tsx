@@ -564,12 +564,23 @@ type ChatProps = {
 };
 
 const LazySceneView = lazy(() => import("./SceneView"));
+let sceneLoadingHideTimer = 0;
 
 function updateSceneLoadingProgress(progress: number) {
     const percentage = Math.round(Math.min(1, Math.max(0, progress)) * 100);
     document.documentElement.style.setProperty("--scene-progress", `${percentage}%`);
     const progressCard = document.querySelector<HTMLElement>(".sceneLoading");
-    if (progressCard) progressCard.dataset.progress = String(percentage);
+    if (progressCard) {
+        progressCard.dataset.progress = String(percentage);
+        progressCard.setAttribute("aria-label", `${progressCard.dataset.label}: ${percentage}%`);
+    }
+
+    if (percentage === 100 && document.documentElement.dataset.avatarLoading === "true") {
+        window.clearTimeout(sceneLoadingHideTimer);
+        sceneLoadingHideTimer = window.setTimeout(() => {
+            delete document.documentElement.dataset.avatarLoading;
+        }, 450);
+    }
 }
 
 type AvatarId = "male" | "jenny";
@@ -746,6 +757,13 @@ export default function Chat({
     };
 
     const selectAvatar = (nextAvatar: AvatarId) => {
+        if (nextAvatar === avatar) return;
+
+        window.clearTimeout(sceneLoadingHideTimer);
+        document.documentElement.dataset.avatarLoading = "true";
+        const progressCard = document.querySelector<HTMLElement>(".sceneLoading");
+        if (progressCard) progressCard.dataset.label = `Loading ${nextAvatar === "jenny" ? "Jenny" : "Bob"}`;
+        updateSceneLoadingProgress(0.04);
         setAvatar(nextAvatar);
         localStorage.setItem("selected-avatar", nextAvatar);
     };
@@ -1348,8 +1366,7 @@ ${topicGuidance}
                     onClick={() => selectAvatar("male")}
                     aria-pressed={avatar === "male"}
                 >
-                    <span className="avatarFullLabel">Male · Bob</span>
-                    <span className="avatarShortLabel" aria-hidden="true">B</span>
+                    <span>Bob</span>
                 </button>
                 <button
                     type="button"
@@ -1357,8 +1374,7 @@ ${topicGuidance}
                     onClick={() => selectAvatar("jenny")}
                     aria-pressed={avatar === "jenny"}
                 >
-                    <span className="avatarFullLabel">Female · Jenny</span>
-                    <span className="avatarShortLabel" aria-hidden="true">J</span>
+                    <span>Jenny</span>
                 </button>
             </div>
 

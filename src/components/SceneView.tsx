@@ -29,9 +29,10 @@ export default function SceneView({ isSpeaking, expression, avatarUrl, onProgres
     }, [avatarProgress, roomProgress, onProgress]);
 
     useEffect(() => {
-        if (revealed.current || !roomReady || readyAvatar !== avatarUrl) return;
+        if (!roomReady || readyAvatar !== avatarUrl) return;
 
         onProgress(1);
+        if (revealed.current) return;
         let revealTimer = 0;
         let secondFrame = 0;
         const firstFrame = requestAnimationFrame(() => {

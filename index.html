@@ -29,9 +29,10 @@
         object-position: 50% 50%;
       }
       .sceneLoading {
-        position: absolute;
+        position: fixed;
         right: 24px;
         bottom: 24px;
+        z-index: 9;
         width: 220px;
         height: 5px;
         padding: 34px 12px 12px;
@@ -42,9 +43,11 @@
         box-shadow: 0 7px 28px rgba(33, 15, 11, 0.34), 0 0 0 rgba(255, 206, 175, 0);
         backdrop-filter: blur(10px);
         animation: sceneLoadingGlow 2.2s ease-in-out infinite;
+        opacity: 1;
+        transition: opacity 240ms ease, visibility 0s linear 0s;
       }
       .sceneLoading::before {
-        content: "●  Preparing 3D room";
+        content: "●  " attr(data-label);
         position: absolute;
         top: 10px;
         left: 12px;
@@ -83,6 +86,11 @@
         opacity: 0;
         visibility: hidden;
       }
+      html[data-scene-ready="true"]:not([data-avatar-loading="true"]) .sceneLoading {
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 240ms ease, visibility 0s linear 240ms;
+      }
       @media (prefers-reduced-motion: reduce) {
         .sceneAtmosphere { transition: none; }
         .sceneLoading, .sceneLoading span { animation: none; }
@@ -96,8 +104,8 @@
   <body>
     <div class="sceneAtmosphere" aria-hidden="true">
       <img src="/images/jenny-room-preview.webp" alt="" fetchpriority="high" />
-      <div class="sceneLoading" data-progress="7"><span></span></div>
     </div>
+    <div class="sceneLoading" data-progress="7" data-label="Preparing 3D room" role="status" aria-label="Preparing 3D room: 7%"><span></span></div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
