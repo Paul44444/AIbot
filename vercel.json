@@ -1,0 +1,8 @@
+{
+  "headers": [
+    {
+      "source": "/dictionaries/cedict-c0247e44fb33/:path*",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+    }
+  ]
+}

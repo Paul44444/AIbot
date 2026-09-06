@@ -73,11 +73,13 @@ from "../utils/realtimeVoice";
 
 //08062026 import { VRMLoaderPlugin } from "@pixiv/three-vrm"
 
-type WordInfo = {
-    word: string;
-    translation: string;
-    pronunciation: string;
-};
+import {
+    DICTIONARY_BASE,
+    getCachedWordInfo,
+    lookupWordInfo,
+    prefetchWordDictionary,
+    type WordInfo,
+} from "../utils/wordLookup";
 
 type GapWord = {
     original: string;
@@ -85,7 +87,6 @@ type GapWord = {
     pronunciation: string;
 };
 
-const wordInfoCache = new Map<string, WordInfo>();
 const wordSegmenter = new Intl.Segmenter(undefined, { granularity: "word" });
 
 function InteractiveText({
@@ -132,42 +133,34 @@ function ChatTranscript({
     const [lookupError, setLookupError] = useState(false);
     const lookupIdRef = useRef(0);
 
-    const showWordInfo = (word: string, context: string) => {
-        const cacheKey = `${word.toLocaleLowerCase()}\n${context}`;
-        const cached = wordInfoCache.get(cacheKey);
-        const lookupId = ++lookupIdRef.current;
+    useEffect(() => {
+        const controller = new AbortController();
+        const words = messages.flatMap((message) =>
+            Array.from(wordSegmenter.segment(message.content))
+                .filter((part) => part.isWordLike)
+                .map((part) => part.segment)
+        );
+        void prefetchWordDictionary(words, controller.signal);
+        return () => { controller.abort(); };
+    }, [messages]);
 
+    useEffect(() => () => { lookupIdRef.current += 1; }, []);
+
+    const showWordInfo = (word: string, context: string) => {
+        const lookupId = ++lookupIdRef.current;
         setLookupWord(word);
         setLookupError(false);
+        const cached = getCachedWordInfo(word, context);
+        setWordInfo(cached);
+        if (cached) return;
 
-        if (cached) {
-            setWordInfo(cached);
-            return;
-        }
-
-        setWordInfo(null);
-
-        window.setTimeout(async () => {
-            if (lookupId !== lookupIdRef.current) return;
-
-            try {
-                const response = await fetch("/api/word-info", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ word, context }),
-                });
-
-                if (!response.ok) throw new Error(`Word lookup failed: ${response.status}`);
-
-                const info = await response.json() as WordInfo;
-                wordInfoCache.set(cacheKey, info);
-
-                if (lookupId === lookupIdRef.current) setWordInfo(info);
-            } catch (error) {
-                console.error(error);
-                if (lookupId === lookupIdRef.current) setLookupError(true);
-            }
-        }, 250);
+        // Start immediately; shared requests prevent duplicate focus/hover calls.
+        void lookupWordInfo(word, context).then((info) => {
+            if (lookupId === lookupIdRef.current) setWordInfo(info);
+        }).catch((error) => {
+            console.error(error);
+            if (lookupId === lookupIdRef.current) setLookupError(true);
+        });
     };
 
     return (
@@ -201,6 +194,12 @@ function ChatTranscript({
                         <>
                             <span className="wordPronunciation">{wordInfo.pronunciation}</span>
                             <span className="wordTranslation">{wordInfo.translation}</span>
+                            {wordInfo.source === "dictionary" && (
+                                <small>
+                                    Dictionary · <a href="https://www.mdbg.net/chinese/dictionary?page=cedict" target="_blank" rel="noreferrer">CC-CEDICT</a>
+                                    {" · "}<a href={`${DICTIONARY_BASE}/NOTICE.txt`} target="_blank" rel="noreferrer">CC BY-SA 4.0</a>
+                                </small>
+                            )}
                         </>
                     )}
                 </aside>
