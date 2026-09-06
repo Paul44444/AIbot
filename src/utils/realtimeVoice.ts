@@ -81,7 +81,7 @@ export async function startRealtimeVoiceSession(options?: {
                 dc.send(JSON.stringify({
                     type: "response.create",
                     response: {
-                        output_modalities: ["text"],
+                        output_modalities: ["audio"],
                     },
                 }));
             }
@@ -225,7 +225,7 @@ export function sendRealtimeText(dc: RTCDataChannel, text: string) {
     dc.send(JSON.stringify({
         type: "response.create",
         response: {
-            output_modalities: ["text"],
+            output_modalities: ["audio"],
         },
     }));
 }

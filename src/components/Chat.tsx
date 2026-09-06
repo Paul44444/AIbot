@@ -34,7 +34,6 @@ import {
     primeSpeechPlayback,
     resumeSpeech,
     seekSpeechToTextPosition,
-    speakText as speakSynthesizedText,
     subscribeSpeechPlayback,
     type SpeechPlaybackState,
 } from "../utils/speakText";
@@ -814,43 +813,17 @@ export default function Chat({
             const startPromise = (async () => {
                 let currentAssistantText = "";
                 let currentAssistantIndex: number | null = null;
-                let speechStartedForCurrentResponse = false;
-
-                const playAssistantSpeech = (text: string) => {
-                    if (signal.aborted || !text || speechStartedForCurrentResponse) return;
-
-                    speechStartedForCurrentResponse = true;
-                    setSpeechPreparing(true);
-                    void speakSynthesizedText(
-                        text,
-                        () => {
-                            if (signal.aborted) return;
-                            setSpeechPreparing(false);
-                            setRealtimeSpeaking(true);
-                        },
-                        () => {
-                            if (signal.aborted) return;
-                            setSpeechPreparing(false);
-                            setRealtimeSpeaking(false);
-                        },
-                        speechRateRef.current
-                    ).catch((error) => {
-                        if (signal.aborted) return;
-                        setSpeechPreparing(false);
-                        setRealtimeSpeaking(false);
-                        console.error("Speech playback failed:", error);
-                    });
-                };
 
                 const session = await startRealtimeVoiceSession({
                     microphone,
                     signal,
-                    muteRemoteAudio: true,
+                    muteRemoteAudio: false,
                     onMicrophoneReady: () => setMicrophoneEnabled(true),
 
                     onUserSpeechStart: () => {
                         cancelSpeech();
                         setSpeechPreparing(false);
+                        setRealtimeSpeaking(false);
                         currentAssistantText = "";
                     },
 
@@ -867,14 +840,10 @@ export default function Chat({
                         });
 
                         currentAssistantText = "";
-                        speechStartedForCurrentResponse = false;
+                        setSpeechPreparing(true);
                     },
 
                     onAssistantTextDelta: (delta) => {
-                        if (!currentAssistantText && currentAssistantIndex === null) {
-                            speechStartedForCurrentResponse = false;
-                        }
-
                         currentAssistantText += delta;
                         const limitedText = limitTextToSentences(
                             currentAssistantText,
@@ -931,8 +900,16 @@ export default function Chat({
                                 return next;
                             });
                         }
-
-                        playAssistantSpeech(completedText);
+                    },
+                    onAudioStart: () => {
+                        setSpeechPreparing(false);
+                        setRealtimeSpeaking(true);
+                        setSpeechPlaybackState("playing");
+                    },
+                    onAudioDone: () => {
+                        setSpeechPreparing(false);
+                        setRealtimeSpeaking(false);
+                        setSpeechPlaybackState("idle");
                     },
                 });
 
@@ -1038,7 +1015,7 @@ export default function Chat({
             type: "session.update",
             session: {
                 type: "realtime",
-                output_modalities: ["text"],
+                output_modalities: ["audio"],
                 instructions: `
 You are a cheerful anime-style character on this website, helping users practice language skills.
 Answer naturally as the character.
@@ -1277,6 +1254,21 @@ ${topicGuidance}
     useEffect(() => subscribeSpeechPlayback(setSpeechPlaybackState), []);
 
     const toggleSpeechPlayback = () => {
+        const realtimeAudio = realtimeSessionRef.current?.audioEl as HTMLAudioElement | undefined;
+        if (realtimeAudio?.srcObject) {
+            if (speechPlaybackState === "playing") {
+                realtimeAudio.pause();
+                setRealtimeSpeaking(false);
+                setSpeechPlaybackState("paused");
+            } else if (speechPlaybackState === "paused") {
+                void realtimeAudio.play().then(() => {
+                    setRealtimeSpeaking(true);
+                    setSpeechPlaybackState("playing");
+                }).catch((error) => console.error("Could not resume realtime speech:", error));
+            }
+            return;
+        }
+
         if (speechPlaybackState === "playing") {
             pauseSpeech();
         } else if (speechPlaybackState === "paused") {
@@ -1294,8 +1286,7 @@ ${topicGuidance}
             if (target?.matches("input, textarea, select, button") || target?.isContentEditable) return;
 
             event.preventDefault();
-            if (speechPlaybackState === "playing") pauseSpeech();
-            else void resumeSpeech().catch(console.error);
+            toggleSpeechPlayback();
         };
 
         window.addEventListener("keydown", handleSpace);
