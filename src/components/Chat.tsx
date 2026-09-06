@@ -568,6 +568,8 @@ const LazySceneView = lazy(() => import("./SceneView"));
 function updateSceneLoadingProgress(progress: number) {
     const percentage = Math.round(Math.min(1, Math.max(0, progress)) * 100);
     document.documentElement.style.setProperty("--scene-progress", `${percentage}%`);
+    const progressCard = document.querySelector<HTMLElement>(".sceneLoading");
+    if (progressCard) progressCard.dataset.progress = String(percentage);
 }
 
 type AvatarId = "male" | "jenny";
