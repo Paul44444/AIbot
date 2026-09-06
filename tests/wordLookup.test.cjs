@@ -33,6 +33,7 @@ test('concurrent hover/focus lookups share a dictionary download', async () => {
     global.fetch = async url => { count++; await new Promise(r => setTimeout(r, 15)); return dictionaryFetch(url); };
     const [a, b] = await Promise.all([lookup.lookupWordInfo('地图', '地图在哪里'), lookup.lookupWordInfo('地图', '看地图')]);
     assert.equal(count, 1); assert.equal(a.translation, b.translation); assert.match(a.pronunciation, /di4 tu2/);
+    assert.equal(a.translation, 'map');
 });
 
 test('fallback requests deduplicate but keep case and sentence context separate', async () => {

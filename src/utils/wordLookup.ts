@@ -86,7 +86,8 @@ function dictionaryInfo(word: string): WordInfo | null {
     if (!entries?.length) return null;
     // Common words before proper names; retain alternate readings/meanings.
     const ordered = [...entries].sort((a, b) => Number(/^[A-Z]/.test(a[0])) - Number(/^[A-Z]/.test(b[0])));
-    const definitions = [...new Set(ordered.flatMap((entry) => entry[1]))];
+    const definitions = [...new Set(ordered.flatMap((entry) => entry[1]))]
+        .filter((definition) => !definition.startsWith("CL:"));
     return {
         word,
         pronunciation: [...new Set(ordered.map((entry) => entry[0]))].join(" / "),
