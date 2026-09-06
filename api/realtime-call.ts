@@ -43,18 +43,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     fd.set("session", JSON.stringify({
         type: "realtime",
         model: "gpt-realtime-2",
-        output_modalities: ["audio"],
         audio: {
             input: {
                 transcription: {
                     model: "gpt-4o-mini-transcribe",
-                },
-                turn_detection: {
-                    type: "server_vad",
-                    threshold: 0.65,
-                    silence_duration_ms: 650,
-                    create_response: false,
-                    interrupt_response: true,
                 },
             },
             output: {

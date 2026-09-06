@@ -74,17 +74,6 @@ export async function startRealtimeVoiceSession(options?: {
             }
 
             options?.onUserTextDone?.(text);
-
-            // Voice turns are answered manually so an empty transcription can be
-            // rejected before the model is asked to respond.
-            if (dc.readyState === "open") {
-                dc.send(JSON.stringify({
-                    type: "response.create",
-                    response: {
-                        output_modalities: ["audio"],
-                    },
-                }));
-            }
         };
 
         dc.onopen = () => {
