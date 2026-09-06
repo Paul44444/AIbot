@@ -1,4 +1,5 @@
-import { Suspense, useState } from "react";
+import { Suspense, useImperativeHandle, useState } from "react";
+import type { Ref } from "react";
 import type { Message } from "../types/chat";
 //import { Canvas, useFrame } from '@react-three/fiber'
 
@@ -1087,7 +1088,10 @@ function waitForDataChannelOpen(dc: RTCDataChannel): Promise<void> {
 
 import type { ChatMessage } from "../data/exampleConversations";
 
+export type ChatHandle = { startNewConversation: () => void };
+
 type ChatProps = {
+    ref?: Ref<ChatHandle>;
     loadedMessages?: ChatMessage[] | null;
     selectedTopic?: string;
     onTopicChange?: (topicId: string) => void;
@@ -1145,7 +1149,7 @@ function limitTextToSentences(text: string, maximumSentences: number): string {
     return text.trim();
 }
 
-export default function Chat({ loadedMessages, selectedTopic = FREE_CONVERSATION_TOPIC_ID, onTopicChange }: ChatProps) {
+export default function Chat({ ref, loadedMessages, selectedTopic = FREE_CONVERSATION_TOPIC_ID, onTopicChange }: ChatProps) {
     //1206026 const [messages, setMessages] = useState<Message[]>([]);
     //12062026A const [speakingText, setSpeakingText] = useState<string | null>(null);
     //1206026 const [input, setInput] = useState<string>("");
@@ -1166,6 +1170,8 @@ export default function Chat({ loadedMessages, selectedTopic = FREE_CONVERSATION
     const { progress, incrementTopicConversation, resetProgress, markTopicVisited } =
         useTopicProgress();
 
+    const conversationAbortRef = useRef(new AbortController());
+    const [conversationVersion, setConversationVersion] = useState(0);
     const realtimeSessionRef = useRef<any>(null);
     const realtimeStartPromiseRef = useRef<Promise<any> | null>(null);
     const realtimeModeRef = useRef<"voice" | "text" | null>(null);
@@ -1250,7 +1256,7 @@ export default function Chat({ loadedMessages, selectedTopic = FREE_CONVERSATION
                     requestedMode === "voice"
                 ) {
                     try {
-                        realtimeSessionRef.current.pc?.close();
+                        realtimeSessionRef.current.dispose?.();
                     } catch {
                         // ignore
                     }
@@ -1265,28 +1271,32 @@ export default function Chat({ loadedMessages, selectedTopic = FREE_CONVERSATION
                 return realtimeStartPromiseRef.current;
             }
 
-            realtimeStartPromiseRef.current = (async () => {
+            const signal = conversationAbortRef.current.signal;
+            const startPromise = (async () => {
                 let currentAssistantText = "";
                 let currentAssistantIndex: number | null = null;
                 let speechStartedForCurrentResponse = false;
 
                 const playAssistantSpeech = (text: string) => {
-                    if (!text || speechStartedForCurrentResponse) return;
+                    if (signal.aborted || !text || speechStartedForCurrentResponse) return;
 
                     speechStartedForCurrentResponse = true;
                     setSpeechPreparing(true);
                     void speakSynthesizedText(
                         text,
                         () => {
+                            if (signal.aborted) return;
                             setSpeechPreparing(false);
                             setRealtimeSpeaking(true);
                         },
                         () => {
+                            if (signal.aborted) return;
                             setSpeechPreparing(false);
                             setRealtimeSpeaking(false);
                         },
                         speechRateRef.current
                     ).catch((error) => {
+                        if (signal.aborted) return;
                         setSpeechPreparing(false);
                         setRealtimeSpeaking(false);
                         console.error("Speech playback failed:", error);
@@ -1295,6 +1305,7 @@ export default function Chat({ loadedMessages, selectedTopic = FREE_CONVERSATION
 
                 const session = await startRealtimeVoiceSession({
                     microphone,
+                    signal,
                     muteRemoteAudio: true,
                     onMicrophoneReady: () => setMicrophoneEnabled(true),
 
@@ -1386,6 +1397,7 @@ export default function Chat({ loadedMessages, selectedTopic = FREE_CONVERSATION
                     },
                 });
 
+                signal.throwIfAborted();
                 realtimeSessionRef.current = session;
                 realtimeModeRef.current = requestedMode;
 
@@ -1397,10 +1409,11 @@ export default function Chat({ loadedMessages, selectedTopic = FREE_CONVERSATION
                 return session;
             })();
 
+            realtimeStartPromiseRef.current = startPromise;
             try {
-                return await realtimeStartPromiseRef.current;
+                return await startPromise;
             } finally {
-                realtimeStartPromiseRef.current = null;
+                if (realtimeStartPromiseRef.current === startPromise) realtimeStartPromiseRef.current = null;
             }
         };
 
@@ -1408,6 +1421,7 @@ export default function Chat({ loadedMessages, selectedTopic = FREE_CONVERSATION
         // This runs synchronously inside the user's tap and unlocks delayed TTS
         // playback on iPhone Safari.
         primeSpeechPlayback();
+        const signal = conversationAbortRef.current.signal;
         try {
             const existingSession = realtimeSessionRef.current;
 
@@ -1417,17 +1431,19 @@ export default function Chat({ loadedMessages, selectedTopic = FREE_CONVERSATION
              */
             if (
                 !existingSession ||
-                existingSession.pc?.connectionState === "closed"
+                existingSession.pc?.connectionState === "closed" ||
+                realtimeModeRef.current !== "voice"
             ) {
                 setMicrophoneConnecting(true);
 
                 try {
                     const session = await startRealtimeIfNeeded(true);
 
+                    signal.throwIfAborted();
                     setSessionMicrophoneEnabled(session, true);
                     setMicrophoneEnabled(true);
                 } finally {
-                    setMicrophoneConnecting(false);
+                    if (!signal.aborted) setMicrophoneConnecting(false);
                 }
 
                 return;
@@ -1442,6 +1458,7 @@ export default function Chat({ loadedMessages, selectedTopic = FREE_CONVERSATION
 
             setMicrophoneEnabled(nextEnabled);
         } catch (error) {
+            if (signal.aborted) return;
             console.error(
                 "Could not toggle realtime microphone:",
                 error
@@ -1600,6 +1617,7 @@ ${topicGuidance}
 
     const {
         messages,
+        setMessages,
         input,
         setInput,
         loading,
@@ -1613,7 +1631,56 @@ ${topicGuidance}
         useState<any>(null);
     void realtimeSession;
 
+    useEffect(() => {
+        if (conversationAbortRef.current.signal.aborted) conversationAbortRef.current = new AbortController();
+        return () => {
+            conversationAbortRef.current.abort();
+            cancelSpeech();
+        };
+    }, []);
+
+    useImperativeHandle(ref, () => ({
+        startNewConversation() {
+            const currentMessages = [...messages, ...realtimeMessages].filter(
+                (message): message is ChatMessage =>
+                    (message.role === "user" || message.role === "assistant")
+                    && message.content.trim() !== "..."
+            );
+            if (currentMessages.length) {
+                upsertConversationNode(conversationNodeIdRef.current, currentMessages);
+            }
+            // Stop old callbacks before clearing UI and assigning a fresh history ID.
+            conversationAbortRef.current.abort();
+            conversationAbortRef.current = new AbortController();
+            cancelSpeech();
+            realtimeSessionRef.current = null;
+            realtimeStartPromiseRef.current = null;
+            realtimeModeRef.current = null;
+            setRealtimeSession(null);
+            setRealtimeDc(null);
+            setMicrophoneEnabled(false);
+            setMicrophoneConnecting(false);
+            setRealtimeSpeaking(false);
+            setSpeechPreparing(false);
+            setCurrentExpression("relaxed");
+            gapWordsRequestRef.current += 1;
+            lastGapTranscriptRef.current = "";
+            setGapWords([]);
+            setGapWordsLoading(false);
+            setGapWordsError(false);
+            setMessages([]);
+            setRealtimeMessages([]);
+            setInput("");
+            conversationNodeIdRef.current = crypto.randomUUID();
+            lastSavedMessageCountRef.current = 0;
+            lastMessageCountRef.current = 0;
+            setConversationVersion((version) => version + 1);
+            requestAnimationFrame(() => document.querySelector<HTMLInputElement>(".uiOverlay input")?.focus());
+        },
+    }));
+
     const sendTypedMessage = async () => {
+            const signal = conversationAbortRef.current.signal;
             const text = input.trim();
 
             if (!text) return;
@@ -1638,8 +1705,10 @@ ${topicGuidance}
 
                 console.log("Sending typed text to Realtime:", text);
 
+                signal.throwIfAborted();
                 sendRealtimeText(dc, text);
             } catch (error) {
+                if (signal.aborted) return;
                 console.error("Could not send typed realtime message:", error);
 
                 setRealtimeMessages((prev) => [
@@ -1694,38 +1763,8 @@ ${topicGuidance}
         return () => window.removeEventListener("keydown", handleSpace);
     }, [speechPlaybackState]);
 
-    useEffect(() => {
-        async function autoStart() {
-            try {
-                const permission =
-                    await navigator.permissions.query({
-                        name: "microphone" as PermissionName,
-                    });
-
-                console.log(
-                    "Microphone permission:",
-                    permission.state
-                );
-
-                if (permission.state === "granted") {
-                    setMicrophoneConnecting(true);
-
-                    try {
-                        const session = await startRealtimeIfNeeded(true);
-
-                        setSessionMicrophoneEnabled(session, true);
-                        setMicrophoneEnabled(true);
-                    } finally {
-                        setMicrophoneConnecting(false);
-                    }
-                }
-            } catch (err) {
-                console.error(err);
-            }
-        }
-
-        autoStart();
-    }, []);
+    // Microphone activation is explicit even when browser permission is already
+    // granted, so the invitation remains until activated or dismissed.
 
     useEffect(() => {
         if (loadedMessages) return;
@@ -1841,7 +1880,7 @@ ${topicGuidance}
                 </label>
             </div>
 
-            <ChatTranscript
+            <ChatTranscript key={conversationVersion}
                 messages={displayedMessages}
                 loading={loading}
                 assistantName={avatar === "jenny" ? "Jenny" : "Bob"}
@@ -1898,7 +1937,7 @@ ${topicGuidance}
                 onResetProgress={resetProgress}
             />
 
-            <ChatInput
+            <ChatInput key={conversationVersion}
                 input={input}
                 setInput={setInput}
                 sendMessage={sendTypedMessage}

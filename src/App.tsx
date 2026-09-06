@@ -1,5 +1,5 @@
-import { useState } from "react";
-import Chat from "./components/Chat";
+import { useRef, useState } from "react";
+import Chat, { type ChatHandle } from "./components/Chat";
 import TopicGraph from "./components/TopicGraph";
 import ConversationGraph from "./components/ConversationGraph";
 import type { ChatMessage } from "./data/exampleConversations";
@@ -7,6 +7,7 @@ import { FREE_CONVERSATION_TOPIC_ID } from "./data/topicTree";
 import { MessagesSquare, Network } from "lucide-react";
 
 function App() {
+    const chatRef = useRef<ChatHandle>(null);
     const [showTopicGraph, setShowTopicGraph] = useState(false);
     const [showConversationGraph, setShowConversationGraph] = useState(false);
     const [selectedTopic, setSelectedTopic] = useState(FREE_CONVERSATION_TOPIC_ID);
@@ -14,7 +15,7 @@ function App() {
 
     return (
         <>
-            <Chat loadedMessages={loadedMessages} selectedTopic={selectedTopic} onTopicChange={setSelectedTopic} />
+            <Chat ref={chatRef} loadedMessages={loadedMessages} selectedTopic={selectedTopic} onTopicChange={setSelectedTopic} />
 
             <button
                 className="conversationGraphButton"
@@ -56,6 +57,13 @@ function App() {
 
             {showConversationGraph && (
                 <ConversationGraph
+                    onNewConversation={() => {
+                        chatRef.current?.startNewConversation();
+                        setLoadedMessages(null);
+                        setSelectedTopic(FREE_CONVERSATION_TOPIC_ID);
+                        setShowConversationGraph(false);
+                        setShowTopicGraph(false);
+                    }}
                     onClose={() => setShowConversationGraph(false)}
                     onOpenConversation={(messages) => {
                         setLoadedMessages(messages);

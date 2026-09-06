@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import type { ChatMessage } from "../data/exampleConversations";
 import { loadAllConversations } from "../data/conversationStorage";
 
@@ -14,10 +14,11 @@ function formatConversationDate(timestamp?: number) {
 
 type ConversationGraphProps = {
     onClose: () => void;
+    onNewConversation: () => void;
     onOpenConversation: (messages: ChatMessage[]) => void;
 };
 
-export default function ConversationGraph({ onClose, onOpenConversation }: ConversationGraphProps) {
+export default function ConversationGraph({ onClose, onOpenConversation, onNewConversation }: ConversationGraphProps) {
     const [hoveredId, setHoveredId] = useState<string | null>(null);
     const [conversations, setConversations] = useState(loadAllConversations);
 
@@ -50,6 +51,17 @@ export default function ConversationGraph({ onClose, onOpenConversation }: Conve
             </header>
 
             <div className="conversationGraphCanvas">
+                <button
+                    type="button"
+                    className="conversationGraphNode conversationGraphNew"
+                    onClick={onNewConversation}
+                    onMouseEnter={() => setHoveredId(null)}
+                    onFocus={() => setHoveredId(null)}
+                    aria-label="Start new conversation"
+                >
+                    <span className="conversationGraphIcon"><Plus size={28} aria-hidden="true" /></span>
+                    <span className="conversationGraphTitle">New</span>
+                </button>
                 {conversations.map((conversation) => (
                     <button
                         key={conversation.id}

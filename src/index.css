@@ -908,6 +908,25 @@ button:focus-visible {
     background: rgba(255,255,255,0.1);
     transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
+.conversationGraphNew {
+    color: #eafff2;
+    border-color: #48bd80;
+    background: linear-gradient(145deg, #236f4b, #164d39);
+}
+.conversationGraphNew .conversationGraphIcon {
+    border-color: #8ee6b4;
+    background: rgba(107, 235, 166, 0.16);
+}
+.conversationGraphNew:hover,
+.conversationGraphNew:focus-visible {
+    border-color: #a6f2c7;
+    background: #287d54;
+}
+.conversationGraphNew:hover .conversationGraphIcon,
+.conversationGraphNew:focus-visible .conversationGraphIcon {
+    border-color: #a6f2c7;
+    box-shadow: 0 0 24px rgba(92, 224, 148, 0.4);
+}
 .conversationGraphTitle {
     max-width: 100%;
     font-size: 0.82rem;
