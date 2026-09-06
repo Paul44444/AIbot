@@ -47,7 +47,7 @@ export default function SceneView({ isSpeaking, expression, avatarUrl }: SceneVi
         >
             <Canvas
                 className="backgroundCanvas1"
-                dpr={[1, 1.5]}
+                dpr={[1, 1.25]}
                 camera={{ position: [0.5, -0.3, 0.5] }}
             >
                 <ambientLight intensity={2} />
@@ -224,13 +224,15 @@ function Room({ onReady }: { onReady: (ready: boolean) => void }) {
         const spark = new SparkRenderer({
             renderer: gl,
             lodSplatScale: 0.06,
-            lodRenderScale: 0.15,
+            // Avoid fetching and drawing sub-pixel detail while the user moves.
+            lodRenderScale: 1,
         });
         let reportedReady = false;
         const previousAfterRender = spark.onAfterRender.bind(spark);
         spark.onAfterRender = (...args) => {
             previousAfterRender(...args);
-            if (!reportedReady && spark.activeSplats > 0) {
+            // Reveal after more than the very first streamed room fragment.
+            if (!reportedReady && spark.activeSplats >= 100_000) {
                 reportedReady = true;
                 onReady(true);
             }

@@ -656,12 +656,11 @@ export default function Chat({
                 } else {
                     setSceneStarted(true);
                 }
-            }, 2_500);
+            }, 800);
         };
 
         scheduleAfterQuietPeriod();
         window.addEventListener("pointerdown", scheduleAfterQuietPeriod, { passive: true });
-        window.addEventListener("pointermove", scheduleAfterQuietPeriod, { passive: true });
         window.addEventListener("keydown", scheduleAfterQuietPeriod);
         window.addEventListener("focusin", scheduleAfterQuietPeriod);
 
@@ -669,7 +668,6 @@ export default function Chat({
             window.clearTimeout(startTimer);
             if (idleCallback && "cancelIdleCallback" in window) window.cancelIdleCallback(idleCallback);
             window.removeEventListener("pointerdown", scheduleAfterQuietPeriod);
-            window.removeEventListener("pointermove", scheduleAfterQuietPeriod);
             window.removeEventListener("keydown", scheduleAfterQuietPeriod);
             window.removeEventListener("focusin", scheduleAfterQuietPeriod);
         };
