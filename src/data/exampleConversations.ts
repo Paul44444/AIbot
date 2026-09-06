@@ -13,6 +13,7 @@ export type ExampleConversation = {
     x: number;
     y: number;
     messages: ChatMessage[];
+    createdAt?: number;
 };
 
 export const exampleConversations: ExampleConversation[] = [

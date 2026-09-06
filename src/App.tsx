@@ -1,41 +1,65 @@
 import { useState } from "react";
 import Chat from "./components/Chat";
 import TopicGraph from "./components/TopicGraph";
+import ConversationGraph from "./components/ConversationGraph";
 import type { ChatMessage } from "./data/exampleConversations";
+import { FREE_CONVERSATION_TOPIC_ID } from "./data/topicTree";
+import { MessagesSquare, Network } from "lucide-react";
 
 function App() {
     const [showTopicGraph, setShowTopicGraph] = useState(false);
-    const [loadedMessages, setLoadedMessages] =
-        useState<ChatMessage[] | null>(null);
+    const [showConversationGraph, setShowConversationGraph] = useState(false);
+    const [selectedTopic, setSelectedTopic] = useState(FREE_CONVERSATION_TOPIC_ID);
+    const [loadedMessages, setLoadedMessages] = useState<ChatMessage[] | null>(null);
 
     return (
         <>
-            <Chat loadedMessages={loadedMessages} />
+            <Chat loadedMessages={loadedMessages} selectedTopic={selectedTopic} onTopicChange={setSelectedTopic} />
 
             <button
-                className="topicGraphButton"we
+                className="conversationGraphButton"
                 type="button"
-                onClick={() =>
-                    setShowTopicGraph((previous) => !previous)
-                }
+                onClick={() => {
+                    setShowTopicGraph(false);
+                    setShowConversationGraph((previous) => !previous);
+                }}
+                aria-expanded={showConversationGraph}
+                aria-controls="conversation-graph"
+                aria-label="Open conversation map"
+                data-tooltip="Conversation map"
+            >
+                <MessagesSquare size={22} aria-hidden="true" />
+            </button>
+
+            <button
+                className="topicGraphButton"
+                type="button"
+                onClick={() => {
+                    setShowConversationGraph(false);
+                    setShowTopicGraph((previous) => !previous);
+                }}
                 aria-expanded={showTopicGraph}
                 aria-controls="topic-graph"
+                aria-label="Open learning tree"
+                data-tooltip="Learning tree"
             >
-                <span className="topicGraphDesktopText">
-                    {showTopicGraph ? "Close Graph" : "Topic Graph"}
-                </span>
-
-                <span className="topicGraphMobileText">
-                    {showTopicGraph ? "Close" : "Topics"}
-                </span>
+                <Network size={22} aria-hidden="true" />
             </button>
 
             {showTopicGraph && (
                 <TopicGraph
+                    selectedTopic={selectedTopic}
                     onClose={() => setShowTopicGraph(false)}
+                    onSelectTopic={setSelectedTopic}
+                />
+            )}
+
+            {showConversationGraph && (
+                <ConversationGraph
+                    onClose={() => setShowConversationGraph(false)}
                     onOpenConversation={(messages) => {
                         setLoadedMessages(messages);
-                        setShowTopicGraph(false);
+                        setShowConversationGraph(false);
                     }}
                 />
             )}
