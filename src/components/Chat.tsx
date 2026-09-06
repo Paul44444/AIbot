@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import type { Message } from "../types/chat";
 //import { Canvas, useFrame } from '@react-three/fiber'
 
@@ -233,7 +233,9 @@ function SceneView({
                     expression={expression}
                 />
 
-                <Environment preset="city" />
+                <Suspense fallback={null}>
+                    <Environment preset="city" />
+                </Suspense>
 
                 <OrbitControls
                     target={[0, -0.25, 0]}
