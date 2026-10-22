@@ -13,33 +13,33 @@ import {
 } from "./CozyRoom";
 import { FLOOR_Y, HEIGHT, ROOM_BOUNDS, center } from "./roomLayout";
 
-// Bob's den: dusky purple walls, an orange LED strip, gaming desk, posters,
+// Jinx's den: dusky purple walls, an orange LED strip, gaming desk, posters,
 // skateboard and the general mess of a lovable trickster.
 
-const BOB = ROOM_BOUNDS.bob;
+const JINX = ROOM_BOUNDS.jinx;
 const ORANGE = "#ff9a3c";
 const STYLE = { color: "#5f5689", trim: "#2e2943", wainscot: false };
 
-export const BOB_LIGHTS = [
-    { position: [center(BOB).x, FLOOR_Y + HEIGHT - 0.5, center(BOB).z], color: "#ffd9bd", intensity: 4, distance: 9, decay: 1.2 },
+export const JINX_LIGHTS = [
+    { position: [center(JINX).x, FLOOR_Y + HEIGHT - 0.5, center(JINX).z], color: "#ffd9bd", intensity: 4, distance: 9, decay: 1.2 },
     // Neon glow above the gaming desk.
-    { position: [center(BOB).x - 0.3, FLOOR_Y + 1.9, BOB.minZ + 0.5], color: "#ff7fb0", intensity: 1.6, distance: 4, decay: 1.5 },
+    { position: [center(JINX).x - 0.3, FLOOR_Y + 1.9, JINX.minZ + 0.5], color: "#ff7fb0", intensity: 1.6, distance: 4, decay: 1.5 },
 ] as const;
 
 function makeNeonTexture() {
     return canvasTexture(512, 192, (ctx) => {
         ctx.clearRect(0, 0, 512, 192);
-        ctx.font = "bold 120px system-ui, sans-serif";
+        ctx.font = "bold 108px system-ui, sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.shadowColor = "#ff4fa0";
         ctx.shadowBlur = 28;
         ctx.fillStyle = "#ffd0e6";
-        ctx.fillText("BOB", 210, 100);
+        ctx.fillText("JINX", 195, 100);
         ctx.shadowColor = ORANGE;
         ctx.fillStyle = "#ffe2b0";
-        ctx.font = "bold 130px system-ui, sans-serif";
-        ctx.fillText("⚡", 400, 104);
+        ctx.font = "bold 120px system-ui, sans-serif";
+        ctx.fillText("⚡", 430, 104);
     });
 }
 
@@ -116,7 +116,7 @@ function Poster({ position, size, texture, tilt = 0 }: { position: [number, numb
 
 function GamingDesk({ position }: { position: [number, number, number] }) {
     // The left monitor is his YouTube PC (see PCS in roomLayout); the right one runs a game.
-    const screens = useMemo(() => [makeYouTubeScreenTexture("Bob", "#ffb35c"), makeScreenTexture(9)], []);
+    const screens = useMemo(() => [makeYouTubeScreenTexture("Jinx", "#ffb35c"), makeScreenTexture(9)], []);
     return (
         <group position={position}>
             <BlobShadow size={2.1} opacity={0.6} />
@@ -258,7 +258,7 @@ function MiniFridge({ position }: { position: [number, number, number] }) {
     );
 }
 
-export default function BobRoom() {
+export default function JinxRoom() {
     const textures = useMemo(() => ({
         neon: makeNeonTexture(),
         bolt: makePosterTexture("bolt"),
@@ -266,14 +266,14 @@ export default function BobRoom() {
         wave: makePosterTexture("wave"),
     }), []);
     const northHoles = useMemo<Hole[]>(() => [{ x: -1.7, y: 1.0, w: 1.2, h: 1.2, curtain: "#3a4570" }], []);
-    const eastHoles = useMemo(() => [doorwayHole(BOB, "east")], []);
-    const width = BOB.maxX - BOB.minX;
-    const depth = BOB.maxZ - BOB.minZ;
-    const { x: cx, z: cz } = center(BOB);
+    const eastHoles = useMemo(() => [doorwayHole(JINX, "east")], []);
+    const width = JINX.maxX - JINX.minX;
+    const depth = JINX.maxZ - JINX.minZ;
+    const { x: cx, z: cz } = center(JINX);
 
     return (
         <Room
-            bounds={BOB}
+            bounds={JINX}
             style={STYLE}
             ceilingColor="#4b4570"
             beams={false}
@@ -308,10 +308,10 @@ export default function BobRoom() {
         >
             {/* Orange LED strip under the ceiling along every wall. */}
             {[
-                [cx, BOB.minZ + 0.03, width, 0],
-                [cx, BOB.maxZ - 0.03, width, 0],
-                [BOB.minX + 0.03, cz, depth, Math.PI / 2],
-                [BOB.maxX - 0.03, cz, depth, Math.PI / 2],
+                [cx, JINX.minZ + 0.03, width, 0],
+                [cx, JINX.maxZ - 0.03, width, 0],
+                [JINX.minX + 0.03, cz, depth, Math.PI / 2],
+                [JINX.maxX - 0.03, cz, depth, Math.PI / 2],
             ].map(([x, z, length, rotation]) => (
                 <mesh key={`${x}${z}`} position={[x, FLOOR_Y + HEIGHT - 0.12, z]} rotation={[0, rotation, 0]}>
                     <boxGeometry args={[length, 0.025, 0.025]} />

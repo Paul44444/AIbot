@@ -43,7 +43,7 @@ import type { DiagramSpec } from "../types/diagram";
 import type { DiagramState, SketchEntry, SketchLibrary } from "./DiagramPanel";
 import type { YouTubeHandle, YouTubeRequest } from "./YouTubePanel";
 import { formatTime, type VideoDetails } from "../types/youtube";
-import { CHARACTERS, CHARACTER_BY_ID, type CharacterId } from "../data/characters";
+import { CHARACTERS, CHARACTER_BY_ID, characterBySpeaker, type CharacterId } from "../data/characters";
 
 //import ChatTranscript from "./ChatTranscript";
 
@@ -149,8 +149,8 @@ function ChatTranscript({
             <div className="uiAnswer">
                 {messages.map((msg, index) => (
                     <div className={`transcriptMessage transcriptMessage-${msg.role}`} key={index}>
-                        <strong style={msg.speaker && msg.speaker in CHARACTER_BY_ID ? { color: CHARACTER_BY_ID[msg.speaker as CharacterId].color } : undefined}>
-                            {msg.role === "user" ? "You" : CHARACTER_BY_ID[msg.speaker as CharacterId]?.name ?? assistantName}:
+                        <strong style={characterBySpeaker(msg.speaker) ? { color: characterBySpeaker(msg.speaker)!.color } : undefined}>
+                            {msg.role === "user" ? "You" : characterBySpeaker(msg.speaker)?.name ?? assistantName}:
                         </strong>{" "}
                         {msg.diagram ? (
                             <button type="button" className="transcriptSketch" onClick={() => onOpenDiagram(msg)}>
@@ -1141,7 +1141,7 @@ ${topicGuidance}
     [historyVersion]);
 
     const toSketch = (message: Message | ChatMessage, fallbackKey: string): SketchEntry => {
-        const artist = CHARACTER_BY_ID[message.speaker as CharacterId] ?? CHARACTER_BY_ID.jenny;
+        const artist = characterBySpeaker(message.speaker) ?? CHARACTER_BY_ID.jenny;
         return { key: message.id ?? fallbackKey, spec: message.diagram!, artistName: artist.name, artistColor: artist.color };
     };
     const currentSketches = displayedMessages.flatMap((message, index) => message.diagram ? [toSketch(message, `current-${index}`)] : []);

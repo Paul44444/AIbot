@@ -10,7 +10,7 @@ import {
     createVRMAnimationClip,
 } from "@pixiv/three-vrm-animation";
 import CozyRoom, { BlobShadow, JENNY_LIGHTS } from "./CozyRoom";
-import BobRoom, { BOB_LIGHTS } from "./BobRoom";
+import JinxRoom, { JINX_LIGHTS } from "./JinxRoom";
 import SmythRoom, { SMYTH_LIGHTS } from "./SmythRoom";
 import {
     DOORWAYS,
@@ -46,7 +46,7 @@ const SCREEN_RIGHT = new THREE.Vector3(1, 0, -1).normalize();
 
 const ROOMS: Record<CharacterId, () => ReactNode> = {
     jenny: () => <CozyRoom />,
-    bob: () => <BobRoom />,
+    jinx: () => <JinxRoom />,
     smyth: () => <SmythRoom />,
 };
 
@@ -111,7 +111,7 @@ export default function SceneView({ speakingId, addresseeId, expression, onProgr
                 <hemisphereLight args={["#ffe9d2", "#c99a74", 0.6]} />
                 <directionalLight position={[2, 3, -5]} color="#ffeedd" intensity={1.1} />
                 {/* Every room's lamps exist from the start: adding lights later would recompile every material. */}
-                {[...JENNY_LIGHTS, ...BOB_LIGHTS, ...SMYTH_LIGHTS].map((light, index) => (
+                {[...JENNY_LIGHTS, ...JINX_LIGHTS, ...SMYTH_LIGHTS].map((light, index) => (
                     <pointLight
                         key={index}
                         position={light.position as unknown as [number, number, number]}
@@ -487,18 +487,21 @@ function RoomWarmUp({ room, onReady }: { room: RefObject<THREE.Group | null>; on
     return null;
 }
 
+/** Network hiccups would leave an avatar missing or in a T-pose; try a couple more times. */
+function withRetries<T>(task: () => Promise<T>, retries = 2): Promise<T> {
+    return task().catch((error) => {
+        if (retries <= 0) throw error;
+        return new Promise((resolve) => setTimeout(resolve, 800)).then(() => withRetries(task, retries - 1));
+    });
+}
+
 let idleAnimation: Promise<GLTF> | null = null;
 
 function loadIdleAnimation() {
     if (!idleAnimation) {
         const loader = new GLTFLoader();
         loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
-        // A failed fetch would leave an avatar in a T-pose; try a couple more times.
-        const attempt = (retries: number): Promise<GLTF> => loader.loadAsync("/animations/idle.vrma").catch((error) => {
-            if (retries <= 0) throw error;
-            return new Promise((resolve) => setTimeout(resolve, 800)).then(() => attempt(retries - 1));
-        });
-        idleAnimation = attempt(2);
+        idleAnimation = withRetries(() => loader.loadAsync("/animations/idle.vrma"));
         idleAnimation.catch(() => { idleAnimation = null; });
     }
     return idleAnimation;
@@ -534,7 +537,7 @@ function Character({
         const loader = new GLTFLoader();
         loader.register((parser) => new VRMLoaderPlugin(parser));
 
-        loader.load(character.avatarUrl, async (gltf) => {
+        withRetries(() => loader.loadAsync(character.avatarUrl)).then(async (gltf) => {
             const loadedVrm = gltf.userData.vrm as VRM;
             if (cancelled) return;
             // The avatar is always on screen; culling it only makes three.js skin
@@ -586,7 +589,7 @@ function Character({
             mixerRef.current = mixer;
             setVrm(loadedVrm);
             onReadyRef.current();
-        }, undefined, (error) => {
+        }).catch((error) => {
             console.error(`Failed to load ${character.name}:`, error);
             // Let the next room load anyway.
             if (!cancelled) onReadyRef.current();

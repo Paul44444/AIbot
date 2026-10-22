@@ -45,7 +45,7 @@ function waitForOpen(dc: RTCDataChannel) {
     });
 }
 
-/** "Bob, what do you think?" or "…right, Smyth?" addresses that character. */
+/** "Jinx, what do you think?" or "…right, Smyth?" addresses that character. */
 export function addressedCharacter(text: string): CharacterId | null {
     const words = text.toLowerCase().match(/[\p{L}']+/gu) ?? [];
     const edges = [...words.slice(0, 3), ...words.slice(-3)];
@@ -320,7 +320,7 @@ export class GroupConversation {
         this.callbacks.onUserText(text);
         if (target === heardBy) return;
 
-        // "Bob, what do you think?" said to Jenny: Jenny stops, Bob answers.
+        // "Jinx, what do you think?" said to Jenny: Jenny stops, Jinx answers.
         this.stop(heardBy);
         void this.setAddressee(target);
         void this.connect(target).then((session) => {

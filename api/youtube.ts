@@ -37,7 +37,7 @@ class QuotaError extends Error {}
 // search per character and language per day (cached at the edge for everyone).
 const FEEDS: Record<string, string[]> = {
     jenny: ["flower garden tour", "cozy cooking recipe", "relaxing nature walk", "houseplant care tips", "acoustic cover songs", "baking for beginners"],
-    bob: ["skateboard tricks", "funny life hacks", "gaming highlights", "street food challenge", "parkour", "magic tricks revealed"],
+    jinx: ["skateboard tricks", "funny life hacks", "gaming highlights", "street food challenge", "parkour", "magic tricks revealed"],
     smyth: ["science explained", "how the universe works", "biology explained", "physics explained", "history of science", "how the brain works"],
 };
 

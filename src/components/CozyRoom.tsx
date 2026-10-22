@@ -985,7 +985,7 @@ export default function CozyRoom() {
             ) }}
             west={{ holes: westHoles, children: (
                 <>
-                    {/* Bookshelf, dresser with lamp and pictures; the doorway leads to Bob. */}
+                    {/* Bookshelf, dresser with lamp and pictures; the doorway leads to Jinx. */}
                     <Bookshelf position={[2.9, 0, 0.17]} />
                     <Dresser position={[1.6, 0, 0.23]} />
                     <TableLamp position={[1.35, 0.72, 0.23]} />

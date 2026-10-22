@@ -472,7 +472,7 @@ export default function DiagramPanel({ diagram, library, onOpen, onClose }: {
                     <div className="diagramDrawing" role="status">
                         <PencilLine size={30} aria-hidden="true" />
                         <span>No sketches yet</span>
-                        <small>Ask Jenny, Bob or Smyth to sketch something, for example an overview of a topic.</small>
+                        <small>Ask Jenny, Jinx or Smyth to sketch something, for example an overview of a topic.</small>
                     </div>
                 )}
                 {diagram.status === "error" && (
