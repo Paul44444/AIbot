@@ -1,12 +1,12 @@
-import { lazy, Suspense, useImperativeHandle, useState } from "react";
+import { lazy, Suspense, useImperativeHandle, useMemo, useState } from "react";
 import type { CSSProperties, Ref } from "react";
 import type { Message } from "../types/chat";
 
 //08062026A import { useEffect, useRef } from 'react'
 import { useEffect, useRef } from 'react'
 
-import { upsertConversationNode } from "../data/conversationStorage";
-import { Mic, MicOff, Lock, Check, LoaderCircle, Pause, Play } from "lucide-react";
+import { loadStoredConversations, upsertConversationNode } from "../data/conversationStorage";
+import { Mic, MicOff, Lock, Check, LoaderCircle, Pause, Play, PencilLine } from "lucide-react";
 import { useTopicProgress } from "../hooks/useTopicProgress";
 import {
     FREE_CONVERSATION_TOPIC_ID,
@@ -40,7 +40,7 @@ import {
 
 import { GroupConversation, type DiagramRequest, type RaisedHand } from "../utils/groupConversation";
 import type { DiagramSpec } from "../types/diagram";
-import type { DiagramState } from "./DiagramPanel";
+import type { DiagramState, SketchEntry, SketchLibrary } from "./DiagramPanel";
 import { CHARACTERS, CHARACTER_BY_ID, type CharacterId } from "../data/characters";
 
 //import ChatTranscript from "./ChatTranscript";
@@ -784,8 +784,9 @@ export default function Chat({
             if (!response.ok) throw new Error(`Diagram failed: ${response.status}`);
             const spec = await response.json() as DiagramSpec;
             if (signal.aborted) return;
-            setDiagram({ ...sketch, status: "ready", spec });
-            setRealtimeMessages((prev) => [...prev, { role: "assistant", speaker: request.id, content: `✏️ ${spec.title}`, diagram: spec }]);
+            const messageId = crypto.randomUUID();
+            setDiagram({ ...sketch, status: "ready", spec, key: messageId });
+            setRealtimeMessages((prev) => [...prev, { id: messageId, role: "assistant", speaker: request.id, content: `✏️ ${spec.title}`, diagram: spec }]);
             groupRef.current?.finishDiagram(request.id, request.callId, {
                 ok: true,
                 title: spec.title,
@@ -1057,6 +1058,48 @@ ${topicGuidance}
     const displayedMessages = (loadedMessages ?? [...messages, ...realtimeMessages])
         .filter((message) => !(message.role === "user" && message.content.trim() === "..."));
 
+    // Saved conversations change rarely; reread them only when the history changes.
+    const [historyVersion, setHistoryVersion] = useState(0);
+    useEffect(() => {
+        const refresh = () => setHistoryVersion((version) => version + 1);
+        window.addEventListener("conversation-history-updated", refresh);
+        return () => window.removeEventListener("conversation-history-updated", refresh);
+    }, []);
+    const storedConversations = useMemo(() => loadStoredConversations()
+        .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [historyVersion]);
+
+    const toSketch = (message: Message | ChatMessage, fallbackKey: string): SketchEntry => {
+        const artist = CHARACTER_BY_ID[message.speaker as CharacterId] ?? CHARACTER_BY_ID.jenny;
+        return { key: message.id ?? fallbackKey, spec: message.diagram!, artistName: artist.name, artistColor: artist.color };
+    };
+    const currentSketches = displayedMessages.flatMap((message, index) => message.diagram ? [toSketch(message, `current-${index}`)] : []);
+    const shownSketches = new Set(currentSketches.map((entry) => entry.key));
+    const sketchLibrary: SketchLibrary = {
+        current: currentSketches,
+        earlier: storedConversations
+            .filter((conversation) => conversation.id !== conversationNodeIdRef.current)
+            .map((conversation) => ({
+                id: conversation.id,
+                title: conversation.title,
+                sketches: conversation.messages.flatMap((message, index) => message.diagram && !shownSketches.has(message.id ?? "")
+                    ? [toSketch(message, `${conversation.id}-${index}`)]
+                    : []),
+            }))
+            .filter((group) => group.sketches.length > 0),
+    };
+    const sketchCount = sketchLibrary.current.length + sketchLibrary.earlier.reduce((sum, group) => sum + group.sketches.length, 0);
+
+    const openSketch = (entry: SketchEntry) => {
+        setDiagram({ status: "ready", artistName: entry.artistName, artistColor: entry.artistColor, request: "", spec: entry.spec, key: entry.key });
+    };
+    const openLatestSketch = () => {
+        const latest = sketchLibrary.current.at(-1) ?? sketchLibrary.earlier[0]?.sketches.at(-1);
+        if (latest) openSketch(latest);
+        else setDiagram({ status: "empty", artistName: "Group", artistColor: "#b9c9ff", request: "" });
+    };
+
     useEffect(() => {
         if (conversationAbortRef.current.signal.aborted) conversationAbortRef.current = new AbortController();
         return () => {
@@ -1259,9 +1302,21 @@ ${topicGuidance}
 
             {diagram && (
                 <Suspense fallback={null}>
-                    <LazyDiagramPanel diagram={diagram} onClose={() => setDiagram(null)} />
+                    <LazyDiagramPanel diagram={diagram} library={sketchLibrary} onOpen={openSketch} onClose={() => setDiagram(null)} />
                 </Suspense>
             )}
+
+            <button
+                className="sketchesButton"
+                type="button"
+                onClick={() => diagram ? setDiagram(null) : openLatestSketch()}
+                aria-expanded={!!diagram}
+                aria-label={`Sketches (${sketchCount})`}
+                data-tooltip="Sketches"
+            >
+                <PencilLine size={20} aria-hidden="true" />
+                {sketchCount > 0 && <span className="sketchesCount">{sketchCount}</span>}
+            </button>
 
             <GroupBar
                 addressee={addressee}
@@ -1317,8 +1372,8 @@ ${topicGuidance}
                 loading={loading}
                 assistantName={CHARACTER_BY_ID[addressee].name}
                 onOpenDiagram={(message) => {
-                    const artist = CHARACTER_BY_ID[message.speaker as CharacterId] ?? CHARACTER_BY_ID[addressee];
-                    setDiagram({ status: "ready", artistName: artist.name, artistColor: artist.color, request: "", spec: message.diagram });
+                    const entry = sketchLibrary.current.find((candidate) => candidate.spec === message.diagram);
+                    if (entry) openSketch(entry);
                 }}
             />
 

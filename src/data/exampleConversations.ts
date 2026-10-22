@@ -1,8 +1,15 @@
+import type { DiagramSpec } from "../types/diagram";
+
 // src/data/exampleConversations.ts
 
 export type ChatMessage = {
     role: "user" | "assistant";
     content: string;
+    id?: string;
+    /** Which group member said an assistant message. */
+    speaker?: string;
+    /** Whiteboard sketches are saved with the conversation they were drawn in. */
+    diagram?: DiagramSpec;
 };
 
 export type ExampleConversation = {

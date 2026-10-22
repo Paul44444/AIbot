@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import dagre from "@dagrejs/dagre";
-import { Download, Maximize2, Minimize2, PencilLine, Scan, X } from "lucide-react";
+import { Download, List, Maximize2, Minimize2, PencilLine, Scan, X } from "lucide-react";
 import type { DiagramColor, DiagramSpec } from "../types/diagram";
 
 // Lays out a planned diagram with dagre and draws it as SVG on a whiteboard.
@@ -271,14 +271,22 @@ export function DiagramSvg({ spec, svgRef, boardAspect = 16 / 9, view = FIT }: {
 }
 
 export type DiagramState = {
-    status: "drawing" | "ready" | "error";
+    status: "drawing" | "ready" | "error" | "empty";
     artistName: string;
     artistColor: string;
     request: string;
     spec?: DiagramSpec;
+    /** Identifies the sketch in the library, to highlight it there. */
+    key?: string;
 };
 
-async function downloadPng(svg: SVGSVGElement, title: string) {
+export type SketchEntry = { key: string; spec: DiagramSpec; artistName: string; artistColor: string };
+export type SketchLibrary = {
+    current: SketchEntry[];
+    earlier: { id: string; title: string; sketches: SketchEntry[] }[];
+};
+
+async function downloadImage(svg: SVGSVGElement, title: string, format: "jpeg" | "png") {
     // Always export the whole sketch, not the zoomed view.
     const copy = svg.cloneNode(true) as SVGSVGElement;
     copy.querySelector(":scope > g[transform]")?.removeAttribute("transform");
@@ -292,15 +300,41 @@ async function downloadPng(svg: SVGSVGElement, title: string) {
     canvas.height = box.height * 2;
     const context = canvas.getContext("2d")!;
     context.scale(2, 2);
+    // JPEG has no transparency; start from the whiteboard colour.
+    context.fillStyle = "#fbfbfd";
+    context.fillRect(0, 0, box.width, box.height);
     context.drawImage(image, 0, 0, box.width, box.height);
     const link = document.createElement("a");
-    link.download = `${title.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "") || "sketch"}.png`;
-    link.href = canvas.toDataURL("image/png");
+    const extension = format === "jpeg" ? "jpg" : "png";
+    link.download = `${title.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "") || "sketch"}.${extension}`;
+    link.href = canvas.toDataURL(`image/${format}`, 0.92);
     link.click();
 }
 
-/** The shared whiteboard: shows a sketch while it is drawn and when it is ready. */
-export default function DiagramPanel({ diagram, onClose }: { diagram: DiagramState; onClose: () => void }) {
+function LibraryItem({ entry, active, onOpen }: { entry: SketchEntry; active: boolean; onOpen: (entry: SketchEntry) => void }) {
+    return (
+        <button
+            type="button"
+            className={`diagramLibraryItem${active ? " isActive" : ""}`}
+            style={{ "--artist-color": entry.artistColor } as CSSProperties}
+            onClick={() => onOpen(entry)}
+            aria-current={active ? "true" : undefined}
+        >
+            <strong>{entry.spec.title}</strong>
+            <small>{entry.artistName}</small>
+        </button>
+    );
+}
+
+/** The shared whiteboard: shows a sketch while it is drawn and when it is ready, plus all saved sketches. */
+export default function DiagramPanel({ diagram, library, onOpen, onClose }: {
+    diagram: DiagramState;
+    library: SketchLibrary;
+    onOpen: (entry: SketchEntry) => void;
+    onClose: () => void;
+}) {
+    const sketchCount = library.current.length + library.earlier.reduce((sum, group) => sum + group.sketches.length, 0);
+    const [showLibrary, setShowLibrary] = useState(() => sketchCount > 0 && window.innerWidth >= 1000);
     const svgRef = useRef<SVGSVGElement>(null);
     const boardRef = useRef<HTMLDivElement>(null);
     const [boardAspect, setBoardAspect] = useState(16 / 9);
@@ -342,17 +376,34 @@ export default function DiagramPanel({ diagram, onClose }: { diagram: DiagramSta
             <header className="diagramHeader">
                 <div>
                     <small><PencilLine size={13} aria-hidden="true" /> {diagram.artistName}'s sketch</small>
-                    <h2>{diagram.spec?.title ?? (diagram.status === "error" ? "Could not draw this" : "Sketching…")}</h2>
+                    <h2>{diagram.spec?.title ?? (diagram.status === "error" ? "Could not draw this" : diagram.status === "empty" ? "Whiteboard" : "Sketching…")}</h2>
                     {diagram.spec?.subtitle && <p>{diagram.spec.subtitle}</p>}
                 </div>
                 <div className="diagramActions">
-                    {diagram.spec && (
-                        <button type="button" onClick={() => svgRef.current && void downloadPng(svgRef.current, diagram.spec!.title)} title="Download as PNG" aria-label="Download as PNG">
-                            <Download size={17} />
-                        </button>
-                    )}
                     <button
                         type="button"
+                        onClick={() => setShowLibrary((value) => !value)}
+                        title="Earlier sketches"
+                        aria-label="Show earlier sketches"
+                        aria-pressed={showLibrary}
+                        className={showLibrary ? "isOn" : undefined}
+                    >
+                        <List size={17} />
+                    </button>
+                    {diagram.spec && (["jpeg", "png"] as const).map((format) => (
+                        <button
+                            key={format}
+                            type="button"
+                            className="diagramDownload"
+                            onClick={() => svgRef.current && void downloadImage(svgRef.current, diagram.spec!.title, format)}
+                            title={`Download as ${format === "jpeg" ? "JPG" : "PNG"}`}
+                        >
+                            <Download size={15} aria-hidden="true" /> {format === "jpeg" ? "JPG" : "PNG"}
+                        </button>
+                    ))}
+                    <button
+                        type="button"
+                        className="diagramMaximize"
                         onClick={() => setMaximized((value) => !value)}
                         title={maximized ? "Smaller" : "Larger"}
                         aria-label={maximized ? "Make sketch smaller" : "Make sketch larger"}
@@ -365,6 +416,25 @@ export default function DiagramPanel({ diagram, onClose }: { diagram: DiagramSta
                     </button>
                 </div>
             </header>
+            <div className="diagramBody">
+            {showLibrary && (
+                <aside className="diagramLibrary" aria-label="Sketches">
+                    <h3>This conversation</h3>
+                    {library.current.length === 0 && <p>No sketches yet.</p>}
+                    {library.current.slice().reverse().map((entry) => (
+                        <LibraryItem key={entry.key} entry={entry} active={entry.key === diagram.key} onOpen={onOpen} />
+                    ))}
+                    {library.earlier.length > 0 && <h3>Earlier conversations</h3>}
+                    {library.earlier.map((group) => (
+                        <div key={group.id} className="diagramLibraryGroup">
+                            <small>{group.title}</small>
+                            {group.sketches.slice().reverse().map((entry) => (
+                                <LibraryItem key={entry.key} entry={entry} active={entry.key === diagram.key} onOpen={onOpen} />
+                            ))}
+                        </div>
+                    ))}
+                </aside>
+            )}
             <div
                 className={`diagramBoard${view.zoom > 1 ? " isZoomed" : ""}`}
                 ref={boardRef}
@@ -398,6 +468,13 @@ export default function DiagramPanel({ diagram, onClose }: { diagram: DiagramSta
                         <small>{diagram.request}</small>
                     </div>
                 )}
+                {diagram.status === "empty" && (
+                    <div className="diagramDrawing" role="status">
+                        <PencilLine size={30} aria-hidden="true" />
+                        <span>No sketches yet</span>
+                        <small>Ask Jenny, Bob or Smyth to sketch something, for example an overview of a topic.</small>
+                    </div>
+                )}
                 {diagram.status === "error" && (
                     <div className="diagramDrawing" role="status"><span>The sketch did not work this time. Ask again in a moment.</span></div>
                 )}
@@ -409,6 +486,7 @@ export default function DiagramPanel({ diagram, onClose }: { diagram: DiagramSta
                         <button type="button" onClick={() => setView(FIT)} aria-label="Fit to board" title="Fit to board"><Scan size={15} /></button>
                     </div>
                 )}
+            </div>
             </div>
             {diagram.spec?.takeaway && (
                 <footer className="diagramTakeaway"><strong>Key insight</strong> {diagram.spec.takeaway}</footer>
