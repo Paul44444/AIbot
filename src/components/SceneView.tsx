@@ -478,6 +478,7 @@ function Character({
 
     const lookTarget = useRef(new THREE.Vector3());
     const restingView = useMemo(() => viewOf(character.id, 1600, 900).position, [character.id]);
+    const settled = useRef(false);
 
     useFrame((_, delta) => {
         if (!vrm || !group.current) return;
@@ -489,6 +490,15 @@ function Character({
         let yaw = Math.atan2(facing.x - position.x, facing.z - position.z);
         // VRM 0.x models face -Z, VRM 1.0 models face +Z.
         if (vrm.meta.metaVersion === "0") yaw += Math.PI;
+        if (!settled.current) {
+            // Spring bones (hair, skirt) live in world space. The model was set up at the
+            // origin; moving it to its seat and turning it would look like a violent jolt
+            // and fling the skirt up. Place it directly, then restart the physics there.
+            group.current.rotation.y = yaw;
+            group.current.updateMatrixWorld(true);
+            vrm.springBoneManager?.reset();
+            settled.current = true;
+        }
         const current = group.current.rotation.y;
         const turn = Math.atan2(Math.sin(yaw - current), Math.cos(yaw - current));
         group.current.rotation.y = current + turn * (1 - Math.exp(-4 * delta));

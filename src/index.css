@@ -1273,9 +1273,7 @@ button:focus-visible {
 .conversationGraphButton:hover,
 .conversationGraphButton:focus-visible,
 .sketchesButton:hover,
-.sketchesButton:focus-visible,
-.youtubeButton:hover,
-.youtubeButton:focus-visible {
+.sketchesButton:focus-visible {
     transform: translateY(-2px);
     background: #5a97ff;
     box-shadow: 0 9px 24px rgba(68, 136, 255, 0.4);
@@ -1315,26 +1313,43 @@ button:focus-visible {
     opacity: 1;
     transform: translateY(0);
 }
-/* Opens the in-app YouTube browser. */
+/* Opens the in-app YouTube browser; styled like YouTube itself so people notice it. */
 .youtubeButton {
     position: fixed;
     top: 20px;
     right: 378px;
     z-index: 10000;
-    width: 42px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
     height: 40px;
-    padding: 0;
+    padding: 0 14px 0 11px;
     border: none;
     border-radius: 10px;
     cursor: pointer;
-    background: rgba(32, 39, 58, 0.9);
-    color: white;
-    display: grid;
-    place-items: center;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
-    transition: transform 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+    color: #0f0f0f;
+    background: #ffffff;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25), 0 0 0 0 rgba(255, 0, 0, 0.45);
+    font: 700 15px/1 "Roboto", system-ui, sans-serif;
+    letter-spacing: -0.02em;
+    transition: transform 160ms ease, box-shadow 160ms ease;
+    animation: youtubeInvite 2.8s ease-in-out 1.5s 3;
 }
-.youtubeButton[aria-expanded="true"] { background: #e5484d; }
+.youtubeLogo { width: 27px; height: 19px; flex: none; }
+.youtubeButton:hover,
+.youtubeButton:focus-visible {
+    transform: translateY(-2px);
+    box-shadow: 0 9px 24px rgba(255, 0, 0, 0.35);
+}
+.youtubeButton[aria-expanded="true"] { box-shadow: 0 0 0 2px #ff0000, 0 6px 18px rgba(0, 0, 0, 0.25); }
+/* A few gentle red pulses after loading invite people to try it. */
+@keyframes youtubeInvite {
+    0%, 100% { box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25), 0 0 0 0 rgba(255, 0, 0, 0.45); }
+    50% { box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25), 0 0 0 9px rgba(255, 0, 0, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .youtubeButton { animation: none; }
+}
 
 /* Reopens the whiteboard and all saved sketches. */
 .sketchesButton {
@@ -1689,18 +1704,21 @@ button:focus-visible {
     }
 
     .sketchesButton {
-        top: 136px;
+        top: 140px;
         right: 10px;
         width: 40px;
         height: 40px;
     }
 
     .youtubeButton {
-        top: 178px;
+        top: 188px;
         right: 10px;
         width: 40px;
         height: 40px;
+        justify-content: center;
+        padding: 0;
     }
+    .youtubeLabel { display: none; }
 
     .topicGraphDesktopText {
         display: none;
