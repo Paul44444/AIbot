@@ -13,7 +13,6 @@
     "@pixiv/three-vrm-animation": "^3.5.3",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
-    "@sparkjsdev/spark": "^2.1.0",
     "lucide-react": "^1.24.0",
     "openai": "^6.42.0",
     "posthog-js": "^1.386.6",

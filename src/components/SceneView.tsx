@@ -1,7 +1,6 @@
-import { Suspense, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Environment, OrbitControls } from "@react-three/drei";
-import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, type VRM } from "@pixiv/three-vrm";
@@ -9,6 +8,7 @@ import {
     VRMAnimationLoaderPlugin,
     createVRMAnimationClip,
 } from "@pixiv/three-vrm-animation";
+import CozyRoom, { BlobShadow } from "./CozyRoom";
 
 type SceneViewProps = {
     isSpeaking: boolean;
@@ -19,14 +19,14 @@ type SceneViewProps = {
 
 export default function SceneView({ isSpeaking, expression, avatarUrl, onProgress }: SceneViewProps) {
     const [roomReady, setRoomReady] = useState(false);
-    const [roomProgress, setRoomProgress] = useState(0);
+    const handleRoomReady = useCallback(() => setRoomReady(true), []);
     const [readyAvatar, setReadyAvatar] = useState<string | null>(null);
     const [avatarProgress, setAvatarProgress] = useState(0);
     const revealed = useRef(false);
 
     useEffect(() => {
-        onProgress(Math.min(0.96, 0.3 + avatarProgress * 0.45 + roomProgress * 0.21));
-    }, [avatarProgress, roomProgress, onProgress]);
+        onProgress(Math.min(0.96, 0.3 + avatarProgress * 0.66));
+    }, [avatarProgress, onProgress]);
 
     useEffect(() => {
         if (!roomReady || readyAvatar !== avatarUrl) return;
@@ -63,9 +63,8 @@ export default function SceneView({ isSpeaking, expression, avatarUrl, onProgres
                 dpr={[1, 1.25]}
                 camera={{ position: [0.5, -0.3, 0.5] }}
             >
-                <ambientLight intensity={2} />
-                <directionalLight position={[0, -2.6, 0]} intensity={0} />
-                <Room onReady={setRoomReady} onProgress={setRoomProgress} />
+                <ambientLight intensity={1.4} />
+                <CozyRoom onReady={handleRoomReady} />
                 <Character
                     isSpeaking={isSpeaking}
                     expression={expression}
@@ -73,9 +72,6 @@ export default function SceneView({ isSpeaking, expression, avatarUrl, onProgres
                     onReady={setReadyAvatar}
                     onProgress={setAvatarProgress}
                 />
-                <Suspense fallback={null}>
-                    <Environment preset="city" />
-                </Suspense>
                 <OrbitControls
                     target={[0, -0.25, 0]}
                     enablePan
@@ -237,61 +233,7 @@ function Character({
     return (
         <group ref={group} rotation={[0, characterRotationY, 0]} position={[characterX, -2, 0]}>
             <primitive object={vrm.scene} scale={characterScale} />
+            <BlobShadow size={0.9} />
         </group>
     );
-}
-
-function Room({
-    onReady,
-    onProgress,
-}: {
-    onReady: (ready: boolean) => void;
-    onProgress: (progress: number) => void;
-}) {
-    const { scene, gl } = useThree();
-
-    useEffect(() => {
-        const spark = new SparkRenderer({
-            renderer: gl,
-            lodSplatScale: 0.06,
-            // Avoid fetching and drawing sub-pixel detail while the user moves.
-            lodRenderScale: 1,
-        });
-        let reportedReady = false;
-        const previousAfterRender = spark.onAfterRender.bind(spark);
-        spark.onAfterRender = (...args) => {
-            previousAfterRender(...args);
-            // Reveal after more than the very first streamed room fragment.
-            if (!reportedReady && spark.activeSplats >= 100_000) {
-                reportedReady = true;
-                onProgress(1);
-                onReady(true);
-            }
-        };
-
-        const room = new SplatMesh({
-            url: "/model/room-lod.rad",
-            paged: true,
-            onLoad: () => onProgress(0.55),
-            onProgress: (event) => {
-                if (event.lengthComputable && event.total > 0) {
-                    onProgress(Math.min(0.55, 0.08 + (event.loaded / event.total) * 0.47));
-                }
-            },
-        });
-        room.position.set(1.5, -0.86, -0.2);
-        room.rotation.set(0, 1.5, 0);
-        room.scale.setScalar(1);
-        scene.add(spark);
-        scene.add(room);
-
-        return () => {
-            scene.remove(room);
-            scene.remove(spark);
-            room.dispose();
-            spark.dispose();
-        };
-    }, [scene, gl, onReady, onProgress]);
-
-    return null;
 }
