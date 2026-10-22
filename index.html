@@ -20,13 +20,26 @@
         opacity: 1;
         transition: opacity 900ms ease, visibility 0s linear 900ms;
       }
+      /* A 338-byte blurred still is part of the HTML, so a background shows instantly. */
+      .sceneAtmosphere::before {
+        content: "";
+        position: absolute;
+        inset: -40px;
+        background: url("data:image/webp;base64,UklGRkoBAABXRUJQVlA4ID4BAABQCACdASowABsAPt1gqU+opSOiKrgKARAbiWgAsR7CJJvSGZNqH5GtYt4Nh+JOiP9dhNfk9zpf5ExePgZ0moogMzmcdtotQHcLYQAA/ucoQYlf3a2YEf1aKHon4i9/8JWettvG+2//e/hh2TsQfrzPnktvrInH/pqVtMM/BOPwupODY9MiLPAOMIru4CNtuQMxgXdtl/p/TY5yRvRfDUI+J5hIZQwRpV8rzqdvcRzxC7WOMZgIu0zBaYwZ6PQRtxegDHUg42pb0rCCf/OWL+MtFee5jpJpdyLCWQRhVw3CFbNxR0oowcsU8fuegkiqzYK7FGLsjl0vp1Eo9Qw+MA2r8FKBU/QqR3wzNPtSHefU4WoNa7vWMeinmrOMyh/hWzsyWOF598pTweHyTkMiSc4HwbIWSyTjkJ72zeGAAAA=") center / cover;
+        filter: blur(18px);
+      }
       .sceneAtmosphere img {
+        position: relative;
         display: block;
         width: 100%;
         height: 100%;
         object-fit: cover;
         object-position: 50% 50%;
+        opacity: 0;
+        transition: opacity 450ms ease;
       }
+      .sceneAtmosphere img.isLoaded { opacity: 1; }
+      .sceneAtmosphere { overflow: hidden; }
       .sceneLoading {
         position: fixed;
         right: 24px;
@@ -42,7 +55,14 @@
         box-shadow: 0 7px 28px rgba(33, 15, 11, 0.34), 0 0 0 rgba(255, 206, 175, 0);
         backdrop-filter: blur(10px);
         animation: sceneLoadingGlow 2.2s ease-in-out infinite;
+        /* The first room load is quiet; the card only appears when switching avatars. */
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 240ms ease, visibility 0s linear 240ms;
+      }
+      html[data-avatar-loading="true"] .sceneLoading {
         opacity: 1;
+        visibility: visible;
         transition: opacity 240ms ease, visibility 0s linear 0s;
       }
       .sceneLoading::before {
@@ -85,13 +105,8 @@
         opacity: 0;
         visibility: hidden;
       }
-      html[data-scene-ready="true"]:not([data-avatar-loading="true"]) .sceneLoading {
-        opacity: 0;
-        visibility: hidden;
-        transition: opacity 240ms ease, visibility 0s linear 240ms;
-      }
       @media (prefers-reduced-motion: reduce) {
-        .sceneAtmosphere { transition: none; }
+        .sceneAtmosphere, .sceneAtmosphere img { transition: none; }
         .sceneLoading, .sceneLoading span { animation: none; }
         .sceneLoading span { transition: none; }
       }
@@ -102,7 +117,7 @@
   </head>
   <body>
     <div class="sceneAtmosphere" aria-hidden="true">
-      <img src="/images/jenny-room-preview.webp" alt="" fetchpriority="high" />
+      <img src="/images/jenny-room-preview.webp" alt="" fetchpriority="high" decoding="async" onload="this.classList.add('isLoaded')" />
     </div>
     <div class="sceneLoading" data-progress="7" data-label="Preparing 3D room" role="status" aria-label="Preparing 3D room: 7%"><span></span></div>
     <div id="root"></div>

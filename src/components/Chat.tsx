@@ -666,35 +666,25 @@ export default function Chat({
     useEffect(() => {
         if (sceneStarted || pauseSceneStartup || showLanguagePanel) return;
 
+        // Start once the first paint has settled. Interaction no longer postpones
+        // it: the room is cheap now and loads quietly behind the poster.
+        const start = () => {
+            updateSceneLoadingProgress(0.24);
+            setSceneStarted(true);
+        };
         let startTimer = 0;
         let idleCallback = 0;
-        const scheduleAfterQuietPeriod = () => {
-            window.clearTimeout(startTimer);
-            if (idleCallback && "cancelIdleCallback" in window) window.cancelIdleCallback(idleCallback);
-            startTimer = window.setTimeout(() => {
-                if ("requestIdleCallback" in window) {
-                    idleCallback = window.requestIdleCallback(() => {
-                        updateSceneLoadingProgress(0.24);
-                        setSceneStarted(true);
-                    });
-                } else {
-                    updateSceneLoadingProgress(0.24);
-                    setSceneStarted(true);
-                }
-            }, 800);
-        };
-
-        scheduleAfterQuietPeriod();
-        window.addEventListener("pointerdown", scheduleAfterQuietPeriod, { passive: true });
-        window.addEventListener("keydown", scheduleAfterQuietPeriod);
-        window.addEventListener("focusin", scheduleAfterQuietPeriod);
+        // Safari has no requestIdleCallback.
+        const hasIdleCallback = typeof window.requestIdleCallback === "function";
+        if (hasIdleCallback) {
+            idleCallback = window.requestIdleCallback(start, { timeout: 1500 });
+        } else {
+            startTimer = window.setTimeout(start, 300);
+        }
 
         return () => {
             window.clearTimeout(startTimer);
-            if (idleCallback && "cancelIdleCallback" in window) window.cancelIdleCallback(idleCallback);
-            window.removeEventListener("pointerdown", scheduleAfterQuietPeriod);
-            window.removeEventListener("keydown", scheduleAfterQuietPeriod);
-            window.removeEventListener("focusin", scheduleAfterQuietPeriod);
+            if (hasIdleCallback) window.cancelIdleCallback(idleCallback);
         };
     }, [sceneStarted, pauseSceneStartup, showLanguagePanel]);
 

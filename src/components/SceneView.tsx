@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { GLTFLoader, type GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, type VRM } from "@pixiv/three-vrm";
 import {
     VRMAnimationLoaderPlugin,
@@ -83,6 +83,18 @@ export default function SceneView({ isSpeaking, expression, avatarUrl, onProgres
     );
 }
 
+let idleAnimation: Promise<GLTF> | null = null;
+
+function loadIdleAnimation() {
+    if (!idleAnimation) {
+        const loader = new GLTFLoader();
+        loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
+        idleAnimation = loader.loadAsync("/animations/idle.vrma");
+        idleAnimation.catch(() => { idleAnimation = null; });
+    }
+    return idleAnimation;
+}
+
 function Character({
     isSpeaking,
     expression,
@@ -100,7 +112,9 @@ function Character({
     const movingRef = useRef(false);
     const movementVectorRef = useRef(new THREE.Vector2());
     const { size } = useThree();
-    const isJenny = avatarUrl.endsWith("/jenny.vrm");
+    // The previous avatar stays visible while the next one loads, so pose it by its own URL.
+    const shownAvatarUrl: string = vrm?.scene.userData.loadedAvatarUrl ?? avatarUrl;
+    const isJenny = shownAvatarUrl.endsWith("/jenny.vrm");
     const characterX = size.width >= 700 && size.width < 1300
         ? THREE.MathUtils.clamp((1300 - size.width) / 1000, 0, 0.6)
         : 0;
@@ -146,31 +160,35 @@ function Character({
         let cancelled = false;
         const loader = new GLTFLoader();
         loader.register((parser) => new VRMLoaderPlugin(parser));
-        setVrm(null);
-        mixerRef.current = null;
         onProgress(0.04);
 
-        loader.load(avatarUrl, (gltf) => {
+        loader.load(avatarUrl, async (gltf) => {
             const loadedVrm = gltf.userData.vrm as VRM;
             if (cancelled) return;
-
             loadedVrm.scene.userData.loadedAvatarUrl = avatarUrl;
+
+            // Show the avatar only once it stands in its idle pose, not in a T-pose.
+            let mixer: THREE.AnimationMixer | null = null;
+            try {
+                const animation = (await loadIdleAnimation()).userData.vrmAnimations?.[0];
+                if (animation) {
+                    mixer = new THREE.AnimationMixer(loadedVrm.scene);
+                    mixer.clipAction(createVRMAnimationClip(animation, loadedVrm)).play();
+                    mixer.update(0);
+                    loadedVrm.update(0);
+                    // Let hair and clothes start from the idle pose instead of swinging into it.
+                    loadedVrm.springBoneManager?.setInitState();
+                    loadedVrm.springBoneManager?.reset();
+                }
+            } catch (error) {
+                console.error("Idle animation failed:", error);
+            }
+            if (cancelled) return;
+
+            mixerRef.current?.stopAllAction();
+            mixerRef.current = mixer;
             onProgress(1);
             setVrm(loadedVrm);
-
-            const loadIdleAnimation = async () => {
-                const animationLoader = new GLTFLoader();
-                animationLoader.register((parser) => new VRMAnimationLoaderPlugin(parser));
-                const animationGltf = await animationLoader.loadAsync("/animations/idle.vrma");
-                if (cancelled) return;
-                const animation = animationGltf.userData.vrmAnimations?.[0];
-                if (!animation) return;
-
-                const mixer = new THREE.AnimationMixer(loadedVrm.scene);
-                mixerRef.current = mixer;
-                mixer.clipAction(createVRMAnimationClip(animation, loadedVrm)).play();
-            };
-            void loadIdleAnimation().catch((error) => console.error("Idle animation failed:", error));
         }, (event) => {
             if (!cancelled && event.lengthComputable && event.total > 0) {
                 onProgress(Math.min(0.96, 0.04 + (event.loaded / event.total) * 0.92));
@@ -179,8 +197,6 @@ function Character({
 
         return () => {
             cancelled = true;
-            mixerRef.current?.stopAllAction();
-            mixerRef.current = null;
         };
     }, [avatarUrl, onProgress]);
 
