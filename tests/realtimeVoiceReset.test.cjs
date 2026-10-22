@@ -33,7 +33,7 @@ test("aborting a conversation stops its microphone and ignores late events", asy
     const track = { enabled: true, stopped: false, stop() { this.stopped = true; } };
     let assistantText = "";
 
-    global.document = { createElement: () => ({ pause() {}, srcObject: null }) };
+    global.document = { createElement: () => ({ pause() {}, play: async () => {}, setAttribute() {}, srcObject: null }) };
     Object.defineProperty(global, "navigator", {
         configurable: true,
         value: { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [track] }) } },
@@ -81,7 +81,7 @@ test("aborting while microphone permission is pending cleans up the late stream"
     const permission = new Promise((resolve) => { resolvePermission = resolve; });
     const track = { stopped: false, stop() { this.stopped = true; } };
 
-    global.document = { createElement: () => ({ pause() {}, srcObject: null }) };
+    global.document = { createElement: () => ({ pause() {}, play: async () => {}, setAttribute() {}, srcObject: null }) };
     Object.defineProperty(global, "navigator", {
         configurable: true,
         value: { mediaDevices: { getUserMedia: () => permission } },

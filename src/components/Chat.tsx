@@ -824,23 +824,36 @@ export default function Chat({
                         cancelSpeech();
                         setSpeechPreparing(false);
                         setRealtimeSpeaking(false);
+                        // An interrupted reply stays in the transcript; the next one gets its own line.
                         currentAssistantText = "";
+                        currentAssistantIndex = null;
                     },
 
                     onUserTextDone: (text) => {
                         void detectGapWords(text);
+
+                        // Realtime starts answering on speech_stopped, so the
+                        // transcript often arrives after the reply has begun.
+                        // Keep the reply text and place the user line above it.
+                        const replyIndex = currentAssistantIndex;
+                        if (replyIndex !== null) currentAssistantIndex = replyIndex + 1;
+
                         setRealtimeMessages((prev) => {
-                            return [
-                                ...prev,
-                                {
-                                    role: "user",
-                                    content: text,
-                                },
-                            ];
+                            const next = [...prev];
+                            const userMessage: Message = { role: "user", content: text };
+
+                            if (replyIndex !== null && replyIndex <= next.length) {
+                                next.splice(replyIndex, 0, userMessage);
+                            } else {
+                                next.push(userMessage);
+                            }
+
+                            return next;
                         });
 
-                        currentAssistantText = "";
-                        setSpeechPreparing(true);
+                        if (replyIndex === null && !currentAssistantText) {
+                            setSpeechPreparing(true);
+                        }
                     },
 
                     onAssistantTextDelta: (delta) => {

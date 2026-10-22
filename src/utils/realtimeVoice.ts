@@ -16,9 +16,18 @@ export async function startRealtimeVoiceSession(options?: {
     const audioEl = document.createElement("audio");
     audioEl.autoplay = true;
     audioEl.muted = options?.muteRemoteAudio ?? false;
+    audioEl.setAttribute("playsinline", "true");
+
+    // This still runs inside the user's click, which unlocks this element for
+    // later playback on Safari. Without a source the promise may reject.
+    void audioEl.play().catch(() => {});
 
     pc.ontrack = (event) => {
         audioEl.srcObject = event.streams[0];
+        // Autoplay alone can be blocked once the click activation has expired.
+        void audioEl.play().catch((error) => {
+            console.error("Realtime audio playback was blocked:", error);
+        });
     };
 
     const useMicrophone = options?.microphone ?? true;
