@@ -6,7 +6,7 @@ import type { Message } from "../types/chat";
 import { useEffect, useRef } from 'react'
 
 import { loadStoredConversations, upsertConversationNode } from "../data/conversationStorage";
-import { Mic, MicOff, Lock, Check, LoaderCircle, Pause, Play, PencilLine } from "lucide-react";
+import { Mic, MicOff, Lock, Check, LoaderCircle, Pause, Play, PencilLine, MonitorPlay } from "lucide-react";
 import { useTopicProgress } from "../hooks/useTopicProgress";
 import {
     FREE_CONVERSATION_TOPIC_ID,
@@ -41,6 +41,8 @@ import {
 import { GroupConversation, type DiagramRequest, type RaisedHand } from "../utils/groupConversation";
 import type { DiagramSpec } from "../types/diagram";
 import type { DiagramState, SketchEntry, SketchLibrary } from "./DiagramPanel";
+import type { YouTubeHandle } from "./YouTubePanel";
+import { formatTime, type VideoDetails } from "../types/youtube";
 import { CHARACTERS, CHARACTER_BY_ID, type CharacterId } from "../data/characters";
 
 //import ChatTranscript from "./ChatTranscript";
@@ -611,6 +613,18 @@ type ChatProps = {
 
 const LazySceneView = lazy(() => import("./SceneView"));
 const LazyDiagramPanel = lazy(() => import("./DiagramPanel"));
+const LazyYouTubePanel = lazy(() => import("./YouTubePanel"));
+
+/** What the group is told about the video the user is watching. */
+function videoContext(video: VideoDetails) {
+    const chapters = video.chapters.map((chapter) => `${formatTime(chapter.start)} ${chapter.title}`).join("; ");
+    return [
+        `[Video] The user is now watching on YouTube: "${video.title}" by ${video.channelTitle}`
+            + (video.duration ? ` (${formatTime(video.duration)})` : "") + ` — https://youtu.be/${video.id}`,
+        video.description && `Description: ${video.description.slice(0, 1500)}`,
+        chapters && `Chapters: ${chapters}`,
+    ].filter(Boolean).join("\n");
+}
 let sceneLoadingHideTimer = 0;
 
 function updateSceneLoadingProgress(progress: number) {
@@ -801,6 +815,22 @@ export default function Chat({
         }
     };
 
+    const [youtubeOpen, setYoutubeOpen] = useState(false);
+    const [video, setVideo] = useState<VideoDetails | null>(null);
+    const [videoPlaying, setVideoPlaying] = useState(false);
+    const youtubeRef = useRef<YouTubeHandle>(null);
+    const videoRef = useRef<VideoDetails | null>(null);
+    videoRef.current = video;
+
+    const videoPosition = () => {
+        const playback = youtubeRef.current?.playback();
+        const current = videoRef.current;
+        if (!playback || !current) return null;
+        const chapter = current.chapters.filter((item) => item.start <= playback.seconds).at(-1);
+        return `${formatTime(playback.seconds)}${current.duration ? ` of ${formatTime(current.duration)}` : ""}, `
+            + `${playback.playing ? "playing" : "paused"}${chapter ? `, chapter "${chapter.title}"` : ""}`;
+    };
+
     const groupRef = useRef<GroupConversation | null>(null);
     const settingsRef = useRef("");
     // Message id of each character's reply that is still streaming.
@@ -870,6 +900,7 @@ export default function Chat({
             },
         }, conversationAbortRef.current.signal);
         group.updateSettings(settingsRef.current);
+        if (videoRef.current) group.setVideoContext(videoContext(videoRef.current), videoPosition);
         groupRef.current = group;
         return group;
     };
@@ -894,6 +925,12 @@ export default function Chat({
         const signal = conversationAbortRef.current.signal;
         const group = ensureGroup();
 
+        // The mic pauses while a video plays; pressing it means "pause and let me talk".
+        if (videoPlaying) {
+            youtubeRef.current?.pause();
+            if (microphoneEnabled) return;
+        }
+
         if (microphoneEnabled) {
             group.setMicrophoneMuted(true);
             setMicrophoneEnabled(false);
@@ -914,6 +951,17 @@ export default function Chat({
     };
 
     const [realtimeMessages, setRealtimeMessages] = useState<Message[]>([]);
+
+    useEffect(() => {
+        groupRef.current?.setVideoContext(video ? videoContext(video) : null, videoPosition);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [video]);
+
+    // The browser cannot cancel the YouTube player's sound from the microphone,
+    // so the mic pauses while a video plays; otherwise the group answers the video.
+    useEffect(() => {
+        if (microphoneEnabled) groupRef.current?.setMicrophoneMuted(videoPlaying);
+    }, [videoPlaying, microphoneEnabled]);
 
     const lastMessageCountRef = useRef(0);
 
@@ -1303,6 +1351,34 @@ ${topicGuidance}
             {diagram && (
                 <Suspense fallback={null}>
                     <LazyDiagramPanel diagram={diagram} library={sketchLibrary} onOpen={openSketch} onClose={() => setDiagram(null)} />
+                </Suspense>
+            )}
+
+            <button
+                className="youtubeButton"
+                type="button"
+                onClick={() => setYoutubeOpen((open) => !open)}
+                aria-expanded={youtubeOpen}
+                aria-label="YouTube"
+                data-tooltip="Watch YouTube together"
+            >
+                <MonitorPlay size={20} aria-hidden="true" />
+            </button>
+
+            {youtubeOpen && (
+                <Suspense fallback={null}>
+                    <LazyYouTubePanel
+                        ref={youtubeRef}
+                        duck={realtimeSpeaking}
+                        micPaused={microphoneEnabled && videoPlaying}
+                        onClose={() => {
+                            setYoutubeOpen(false);
+                            setVideo(null);
+                            setVideoPlaying(false);
+                        }}
+                        onVideoChange={setVideo}
+                        onPlayingChange={setVideoPlaying}
+                    />
                 </Suspense>
             )}
 

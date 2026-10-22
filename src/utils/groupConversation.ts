@@ -72,6 +72,10 @@ export class GroupConversation {
     private pendingHands: RaisedHand[] | null = null;
     // Nobody raises a hand while someone is busy sketching.
     private sketching = false;
+    /** What the user is watching on YouTube, told to everyone (also late joiners). */
+    private videoContext: string | null = null;
+    /** Where the user is in that video right now, told before each of their turns. */
+    private videoPosition: (() => string | null) | null = null;
 
     private callbacks: GroupCallbacks;
     private signal: AbortSignal;
@@ -126,6 +130,7 @@ export class GroupConversation {
         await this.setAddressee(target);
         const session = await this.connect(target);
         this.signal.throwIfAborted();
+        this.tellVideoPosition(target);
         this.recordUserLine(text, target, target);
         this.callbacks.onUserText(text);
         sendRealtimeText(session.dc, text);
@@ -158,6 +163,21 @@ export class GroupConversation {
             item: { type: "function_call_output", call_id: callId, output: JSON.stringify(result) },
         }));
         session.dc.send(JSON.stringify({ type: "response.create", response: { output_modalities: ["audio"] } }));
+    }
+
+    setVideoContext(context: string | null, position: (() => string | null) | null) {
+        if (context === this.videoContext) return;
+        this.videoContext = context;
+        this.videoPosition = position;
+        const line = context ?? "[Video] The user closed the video.";
+        for (const session of this.ready.values()) this.inject(session, line);
+    }
+
+    /** Tells the addressed character where the user is in the video, right before their turn. */
+    private tellVideoPosition(id: CharacterId) {
+        const position = this.videoContext ? this.videoPosition?.() : null;
+        const session = this.ready.get(id);
+        if (position && session) this.inject(session, `[Video position] ${position}`);
     }
 
     dismissHands() {
@@ -204,6 +224,7 @@ export class GroupConversation {
             for (const line of this.lines.slice(-HISTORY_FOR_LATE_JOINERS)) {
                 if (line.speaker !== character.name) this.inject(session, `[${line.speaker}]: ${line.text}`);
             }
+            if (this.videoContext) this.inject(session, this.videoContext);
             if (id === this.addressee) await this.attachMicrophone();
             return session;
         })();
@@ -287,6 +308,8 @@ export class GroupConversation {
     private handleUserSpeechStart() {
         // The addressed session handles its own barge-in; silence everyone else.
         this.interruptAll(this.addressee);
+        // Arrives before speech ends, i.e. before the automatic reply is created.
+        this.tellVideoPosition(this.addressee);
         this.callbacks.onHands([]);
         this.callbacks.onUserSpeechStart();
     }
