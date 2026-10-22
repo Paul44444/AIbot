@@ -7,6 +7,7 @@ import {
     Room,
     canvasTexture,
     doorwayHole,
+    makeYouTubeScreenTexture,
     seededRandom,
     type Hole,
 } from "./CozyRoom";
@@ -22,7 +23,7 @@ const STYLE = { color: "#5f5689", trim: "#2e2943", wainscot: false };
 export const BOB_LIGHTS = [
     { position: [center(BOB).x, FLOOR_Y + HEIGHT - 0.5, center(BOB).z], color: "#ffd9bd", intensity: 4, distance: 9, decay: 1.2 },
     // Neon glow above the gaming desk.
-    { position: [center(BOB).x + 1.0, FLOOR_Y + 1.9, BOB.minZ + 0.5], color: "#ff7fb0", intensity: 1.6, distance: 4, decay: 1.5 },
+    { position: [center(BOB).x - 0.3, FLOOR_Y + 1.9, BOB.minZ + 0.5], color: "#ff7fb0", intensity: 1.6, distance: 4, decay: 1.5 },
 ] as const;
 
 function makeNeonTexture() {
@@ -114,7 +115,8 @@ function Poster({ position, size, texture, tilt = 0 }: { position: [number, numb
 }
 
 function GamingDesk({ position }: { position: [number, number, number] }) {
-    const screens = useMemo(() => [makeScreenTexture(3), makeScreenTexture(9)], []);
+    // The left monitor is his YouTube PC (see PCS in roomLayout); the right one runs a game.
+    const screens = useMemo(() => [makeYouTubeScreenTexture("Bob", "#ffb35c"), makeScreenTexture(9)], []);
     return (
         <group position={position}>
             <BlobShadow size={2.1} opacity={0.6} />
@@ -164,8 +166,8 @@ function GamingDesk({ position }: { position: [number, number, number] }) {
                 <torusGeometry args={[0.09, 0.015, 8, 20, Math.PI]} />
                 <meshStandardMaterial color="#e8e2f0" roughness={0.5} />
             </mesh>
-            {/* Gaming chair. */}
-            <group position={[0.05, 0, 0.75]} rotation={[0, Math.PI + 0.35, 0]}>
+            {/* Gaming chair, pushed toward the game monitor so the YouTube one stays visible. */}
+            <group position={[0.55, 0, 0.8]} rotation={[0, Math.PI + 0.5, 0]}>
                 <RoundedBox smoothness={2} bevelSegments={1} args={[0.52, 0.1, 0.5]} radius={0.04} position={[0, 0.48, 0]}>
                     <meshStandardMaterial color="#232030" roughness={0.6} />
                 </RoundedBox>
@@ -278,8 +280,8 @@ export default function BobRoom() {
             floorTones={["#6b4a3a", "#5e4033", "#73503e", "#664535", "#6f4b38"]}
             north={{ holes: northHoles, children: (
                 <>
-                    <GamingDesk position={[1.0, 0, 0.4]} />
-                    <mesh position={[1.0, 1.95, 0.02]}>
+                    <GamingDesk position={[-0.3, 0, 0.4]} />
+                    <mesh position={[-0.3, 1.95, 0.02]}>
                         <planeGeometry args={[1.1, 0.41]} />
                         <meshBasicMaterial map={textures.neon} transparent toneMapped={false} depthWrite={false} />
                     </mesh>

@@ -633,6 +633,67 @@ export function Painting({ position, size, texture }: { position: [number, numbe
     );
 }
 
+/** The idle screen of a character's PC: their YouTube start page. */
+export function makeYouTubeScreenTexture(name: string, color: string) {
+    return canvasTexture(520, 320, (ctx) => {
+        ctx.fillStyle = "#0f0f0f";
+        ctx.fillRect(0, 0, 520, 320);
+        // Logo.
+        ctx.fillStyle = "#ff0000";
+        ctx.beginPath();
+        ctx.roundRect(18, 16, 40, 28, 8);
+        ctx.fill();
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.moveTo(33, 23); ctx.lineTo(46, 30); ctx.lineTo(33, 37);
+        ctx.closePath();
+        ctx.fill();
+        ctx.font = "700 22px system-ui, sans-serif";
+        ctx.fillText("YouTube", 66, 38);
+        ctx.fillStyle = color;
+        ctx.font = "700 20px system-ui, sans-serif";
+        ctx.fillText(`${name}'s picks`, 18, 82);
+        // Placeholder thumbnails.
+        for (let i = 0; i < 6; i++) {
+            const x = 18 + (i % 3) * 164;
+            const y = 98 + Math.floor(i / 3) * 104;
+            ctx.fillStyle = i % 2 ? "#2a2a33" : "#33333d";
+            ctx.beginPath();
+            ctx.roundRect(x, y, 152, 70, 8);
+            ctx.fill();
+            ctx.fillStyle = "#3d3d48";
+            ctx.fillRect(x, y + 78, 120, 8);
+        }
+        ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
+        ctx.font = "600 13px system-ui, sans-serif";
+        ctx.fillText("Click to watch together", 360, 304);
+    });
+}
+
+/** A desktop monitor standing on a desk top at `position`; the screen faces +z. */
+export function Monitor({ position, texture }: { position: [number, number, number]; texture: THREE.Texture }) {
+    return (
+        <group position={position}>
+            <mesh position={[0, 0.006, -0.02]}>
+                <boxGeometry args={[0.2, 0.012, 0.14]} />
+                <meshStandardMaterial color="#26262c" roughness={0.5} />
+            </mesh>
+            <mesh position={[0, 0.07, -0.035]}>
+                <boxGeometry args={[0.04, 0.12, 0.03]} />
+                <meshStandardMaterial color="#26262c" roughness={0.5} />
+            </mesh>
+            <mesh position={[0, 0.28, 0]}>
+                <boxGeometry args={[0.56, 0.36, 0.025]} />
+                <meshStandardMaterial color="#1b1b20" roughness={0.4} />
+            </mesh>
+            <mesh position={[0, 0.28, 0.0135]}>
+                <planeGeometry args={[0.52, 0.32]} />
+                <meshBasicMaterial map={texture} toneMapped={false} />
+            </mesh>
+        </group>
+    );
+}
+
 export function Bed({ position }: { position: [number, number, number] }) {
     const width = 1.6;
     const length = 2.0;
@@ -664,7 +725,7 @@ export function Bed({ position }: { position: [number, number, number] }) {
     );
 }
 
-export function Desk({ position }: { position: [number, number, number] }) {
+export function Desk({ position, screen }: { position: [number, number, number]; screen: THREE.Texture }) {
     const width = 1.1;
     const depth = 0.55;
     const height = 0.74;
@@ -680,20 +741,21 @@ export function Desk({ position }: { position: [number, number, number] }) {
                     <meshStandardMaterial color={COLORS.darkWood} roughness={0.7} />
                 </mesh>
             ))}
-            {/* Stack of notebooks and a mug. */}
-            <mesh position={[-0.3, height + 0.04, 0.02]} rotation={[0, 0.2, 0]}>
+            {/* Her PC (see PCS in roomLayout), a stack of notebooks and a mug. */}
+            <Monitor position={[0.02, height + 0.02, -0.12]} texture={screen} />
+            <mesh position={[-0.42, height + 0.04, 0.02]} rotation={[0, 0.2, 0]}>
                 <boxGeometry args={[0.26, 0.04, 0.2]} />
                 <meshStandardMaterial color="#7c9ccf" roughness={0.8} />
             </mesh>
-            <mesh position={[-0.28, height + 0.075, 0.03]} rotation={[0, -0.1, 0]}>
+            <mesh position={[-0.4, height + 0.075, 0.03]} rotation={[0, -0.1, 0]}>
                 <boxGeometry args={[0.24, 0.03, 0.18]} />
                 <meshStandardMaterial color="#e2b55c" roughness={0.8} />
             </mesh>
-            <mesh position={[0.25, height + 0.06, 0.08]}>
+            <mesh position={[0.36, height + 0.06, 0.12]}>
                 <cylinderGeometry args={[0.04, 0.04, 0.09, 14]} />
                 <meshStandardMaterial color="#f4ede4" roughness={0.5} />
             </mesh>
-            <Plant position={[0.42, height + 0.02, -0.12]} scale={0.7} seed={21} />
+            <Plant position={[0.47, height + 0.02, -0.15]} scale={0.7} seed={21} />
             {/* Chair. */}
             <group position={[0, 0, 0.55]} rotation={[0, 0.25, 0]}>
                 <RoundedBox smoothness={2} bevelSegments={1} args={[0.44, 0.05, 0.42]} radius={0.02} position={[0, 0.46, 0]}>
@@ -889,6 +951,7 @@ export const JENNY_LIGHTS = [
 ] as const;
 
 export default function CozyRoom() {
+    const screen = useMemo(() => makeYouTubeScreenTexture("Jenny", "#f29bb5"), []);
     const paintings = useMemo(() => [
         makePaintingTexture(5, ["#f2b8a2", "#9cc4e4", "#f5d48f", "#b6d7a8"]),
         makePaintingTexture(8, ["#c9b6e4", "#f6c1cf", "#a8d5cf", "#fbe0a6"]),
@@ -908,7 +971,7 @@ export default function CozyRoom() {
             ceilingColor={COLORS.ceiling}
             north={{ holes: northHoles, children: (
                 <>
-                    <Desk position={[-1.0, 0, 0.3]} />
+                    <Desk position={[-1.0, 0, 0.3]} screen={screen} />
                     <Bed position={[1.8, 0, 1.0]} />
                     <FairyLights from={[0.85, 2.5]} to={[2.75, 2.5]} />
                     <group position={[0.75, 0, 0.25]}>

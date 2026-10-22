@@ -33,6 +33,14 @@ export type VideoSummary = {
 
 class QuotaError extends Error {}
 
+// Each character's feed: one topic per day, rotating, so a feed costs a single
+// search per character and language per day (cached at the edge for everyone).
+const FEEDS: Record<string, string[]> = {
+    jenny: ["flower garden tour", "cozy cooking recipe", "relaxing nature walk", "houseplant care tips", "acoustic cover songs", "baking for beginners"],
+    bob: ["skateboard tricks", "funny life hacks", "gaming highlights", "street food challenge", "parkour", "magic tricks revealed"],
+    smyth: ["science explained", "how the universe works", "biology explained", "physics explained", "history of science", "how the brain works"],
+};
+
 function seconds(isoDuration = "") {
     const match = isoDuration.match(/P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
     if (!match) return 0;
@@ -147,6 +155,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             const found = await youtube<{ items: { id: { videoId: string } }[]; nextPageToken?: string }>("search", params);
             const videos = await details(found.items.map((item) => item.id.videoId).filter(Boolean));
             return res.status(200).json({ videos: videos.map(summary), nextPageToken: found.nextPageToken ?? null });
+        }
+
+        if (action === "feed" && query.character && FEEDS[query.character]) {
+            res.setHeader("Cache-Control", "s-maxage=86400, stale-while-revalidate=86400");
+            const topics = FEEDS[query.character];
+            const topic = topics[Math.floor(Date.now() / 86_400_000) % topics.length];
+            const params: Record<string, string> = {
+                part: "id",
+                type: "video",
+                q: topic,
+                maxResults: "12",
+                safeSearch: "strict",
+                // Skip shorts; 4–20 minute videos suit watching together.
+                videoDuration: "medium",
+            };
+            if (/^[a-z]{2}$/.test(query.lang ?? "")) params.relevanceLanguage = query.lang!;
+            const found = await youtube<{ items: { id: { videoId: string } }[] }>("search", params);
+            const videos = await details(found.items.map((item) => item.id.videoId).filter(Boolean));
+            return res.status(200).json({ topic, videos: videos.map(summary) });
         }
 
         if (action === "channel" && query.channelId) {

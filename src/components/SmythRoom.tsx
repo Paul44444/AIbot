@@ -1,11 +1,14 @@
 import { useMemo } from "react";
 import { RoundedBox } from "@react-three/drei";
+import type * as THREE from "three";
 import {
     BlobShadow,
     Books,
     Plant,
+    Monitor,
     Room,
     canvasTexture,
+    makeYouTubeScreenTexture,
     doorwayHole,
     type Hole,
 } from "./CozyRoom";
@@ -21,7 +24,7 @@ const STYLE = { color: "#c3d1c8", trim: "#4b3424", wainscot: true };
 export const SMYTH_LIGHTS = [
     { position: [center(SMYTH).x, FLOOR_Y + HEIGHT - 0.5, center(SMYTH).z], color: "#fff0dc", intensity: 4, distance: 9, decay: 1.2 },
     // Banker's lamp on the desk.
-    { position: [center(SMYTH).x + 0.5, FLOOR_Y + 1.15, SMYTH.minZ + 0.6], color: "#ffd9a0", intensity: 1.3, distance: 3, decay: 1.5 },
+    { position: [center(SMYTH).x - 0.2, FLOOR_Y + 1.15, SMYTH.minZ + 0.6], color: "#ffd9a0", intensity: 1.3, distance: 3, decay: 1.5 },
 ] as const;
 
 function makeChalkboardTexture() {
@@ -122,7 +125,7 @@ function TallBookshelf({ position, seed }: { position: [number, number, number];
     );
 }
 
-function StudyDesk({ position }: { position: [number, number, number] }) {
+function StudyDesk({ position, screen }: { position: [number, number, number]; screen: THREE.Texture }) {
     return (
         <group position={position}>
             <BlobShadow size={2.0} opacity={0.6} />
@@ -135,6 +138,8 @@ function StudyDesk({ position }: { position: [number, number, number] }) {
                     <meshStandardMaterial color="#4a3020" roughness={0.65} />
                 </mesh>
             ))}
+            {/* His PC (see PCS in roomLayout). */}
+            <Monitor position={[0.05, 0.79, -0.15]} texture={screen} />
             {/* Microscope. */}
             <group position={[-0.45, 0.79, 0.02]} rotation={[0, 0.5, 0]}>
                 <mesh position={[0, 0.02, 0]}>
@@ -259,8 +264,9 @@ export default function SmythRoom() {
         chalkboard: makeChalkboardTexture(),
         periodic: makePeriodicTexture(),
         rug: makeRugTexture(),
+        screen: makeYouTubeScreenTexture("Smyth", "#8fc1ff"),
     }), []);
-    const northHoles = useMemo<Hole[]>(() => [{ x: -1.9, y: 1.0, w: 1.2, h: 1.25, curtain: "#8a6f4e" }], []);
+    const northHoles = useMemo<Hole[]>(() => [{ x: -2.4, y: 1.0, w: 1.1, h: 1.25, curtain: "#8a6f4e" }], []);
     const eastHoles = useMemo<Hole[]>(() => [{ x: -0.6, y: 1.0, w: 1.3, h: 1.25, curtain: "#8a6f4e" }], []);
     const westHoles = useMemo(() => [doorwayHole(SMYTH, "west")], []);
     const { x: cx, z: cz } = center(SMYTH);
@@ -273,13 +279,13 @@ export default function SmythRoom() {
             floorTones={["#6a4630", "#5c3c28", "#74503a", "#634229", "#6e4a33"]}
             north={{ holes: northHoles, children: (
                 <>
-                    <StudyDesk position={[0.8, 0, 0.42]} />
+                    <StudyDesk position={[-0.7, 0, 0.42]} screen={textures.screen} />
                     {/* Chalkboard with a wooden frame. */}
-                    <mesh position={[0.8, 1.75, 0.02]}>
+                    <mesh position={[-0.7, 1.75, 0.02]}>
                         <boxGeometry args={[1.9, 0.95, 0.04]} />
                         <meshStandardMaterial color={WALNUT} roughness={0.6} />
                     </mesh>
-                    <mesh position={[0.8, 1.75, 0.042]}>
+                    <mesh position={[-0.7, 1.75, 0.042]}>
                         <planeGeometry args={[1.78, 0.83]} />
                         <meshStandardMaterial map={textures.chalkboard} roughness={0.95} />
                     </mesh>

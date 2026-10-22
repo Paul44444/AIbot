@@ -1,6 +1,11 @@
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { ArrowLeft, ChevronDown, ChevronUp, MicOff, Search, Sparkles, X } from "lucide-react";
 import { formatTime, videoIdFromUrl, type VideoDetails, type VideoPlayback, type VideoSummary } from "../types/youtube";
+import { CHARACTERS, CHARACTER_BY_ID, type CharacterId } from "../data/characters";
+
+/** Opening the viewer from a character's PC: their feed, maybe a video right away. */
+export type YouTubeRequest = { feed: CharacterId; videoId?: string; nonce: number };
+type Tab = "trending" | CharacterId;
 
 // An in-app YouTube browser: search and trending via /api/youtube, playback with
 // the official IFrame player (youtube.com itself refuses to be embedded).
@@ -81,6 +86,7 @@ function errorText(error: ApiError) {
 
 export default function YouTubePanel({
     ref,
+    request,
     duck,
     micPaused,
     onClose,
@@ -88,6 +94,7 @@ export default function YouTubePanel({
     onPlayingChange,
 }: {
     ref?: Ref<YouTubeHandle>;
+    request: YouTubeRequest | null;
     /** Lower the video while a character is speaking. */
     duck: boolean;
     micPaused: boolean;
@@ -96,6 +103,7 @@ export default function YouTubePanel({
     onPlayingChange: (playing: boolean) => void;
 }) {
     const [query, setQuery] = useState("");
+    const [tab, setTab] = useState<Tab | null>(request?.feed ?? "trending");
     const [results, setResults] = useState<{ title: string; videos: VideoSummary[]; nextPageToken?: string | null; q?: string } | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<ApiError | null>(null);
@@ -128,11 +136,17 @@ export default function YouTubePanel({
     };
 
     useEffect(() => {
+        if (!tab) return;
         void run(async () => {
-            const data = await api<{ videos: VideoSummary[] }>({ action: "trending", region });
-            setResults({ title: "Trending", videos: data.videos });
+            if (tab === "trending") {
+                const data = await api<{ videos: VideoSummary[] }>({ action: "trending", region });
+                setResults({ title: "Trending", videos: data.videos });
+            } else {
+                const data = await api<{ topic: string; videos: VideoSummary[] }>({ action: "feed", character: tab, lang: language });
+                setResults({ title: `${CHARACTER_BY_ID[tab].name}'s picks · today: ${data.topic}`, videos: data.videos });
+            }
         });
-    }, []);
+    }, [tab]);
 
     const openVideo = (id: string) => void run(async () => {
         const details = await api<VideoDetails>({ action: "video", id });
@@ -146,6 +160,15 @@ export default function YouTubePanel({
                 .catch(() => setRelated([]));
         }
     });
+
+    // Opened (again) from a PC: show that character's feed and maybe play a video.
+    useEffect(() => {
+        if (!request) return;
+        setTab(request.feed);
+        if (request.videoId) openVideo(request.videoId);
+        // openVideo is recreated every render; the request's nonce drives this.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [request?.nonce]);
 
     const search = (text: string, pageToken?: string) => {
         const id = videoIdFromUrl(text);
@@ -162,6 +185,7 @@ export default function YouTubePanel({
                 nextPageToken: data.nextPageToken,
             }));
             if (!pageToken) {
+                setTab(null);
                 setVideo(null);
                 onVideoChange(null);
             }
@@ -295,6 +319,20 @@ export default function YouTubePanel({
                     </aside>
                 ) : (
                     <div className="ytResults">
+                        <div className="ytTabs" role="tablist" aria-label="Feeds">
+                            {(["trending", ...CHARACTERS.map((character) => character.id)] as Tab[]).map((item) => (
+                                <button
+                                    type="button"
+                                    role="tab"
+                                    key={item}
+                                    aria-selected={tab === item}
+                                    style={item === "trending" ? undefined : { "--member-color": CHARACTER_BY_ID[item].color } as React.CSSProperties}
+                                    onClick={() => setTab(item)}
+                                >
+                                    {item === "trending" ? "Trending" : `${CHARACTER_BY_ID[item].name}'s picks`}
+                                </button>
+                            ))}
+                        </div>
                         {results && <h2>{results.title}</h2>}
                         <div className="ytGrid">
                             {results?.videos.map((item) => <VideoCard key={item.id} video={item} onOpen={(v) => openVideo(v.id)} />)}

@@ -51,3 +51,19 @@ export function doorwayLocalX(bounds: Bounds, side: "west" | "east") {
     const { z } = center(bounds);
     return side === "west" ? -(DOORWAY_Z - z) : DOORWAY_Z - z;
 }
+
+export type PcScreen = { position: [number, number, number]; yaw: number; width: number; height: number };
+
+/**
+ * World position of each character's PC screen. These follow the desks in the
+ * room files (Desk in CozyRoom, GamingDesk in BobRoom, StudyDesk in SmythRoom);
+ * keep them in sync when moving furniture.
+ */
+export const PCS: Record<CharacterId, PcScreen> = {
+    // Jenny's desk at north-wall x −1.0; monitor 0.12 m back on the 0.76 m desk top.
+    jenny: { position: [-0.58, FLOOR_Y + 1.04, -3.8065], yaw: 0, width: 0.52, height: 0.32 },
+    // Bob's gaming desk at north-wall x −0.3; his left monitor, turned 0.18 rad toward the chair.
+    bob: { position: [-7.577, FLOOR_Y + 1.08, -3.704], yaw: 0.18, width: 0.6, height: 0.36 },
+    // Smyth's study desk at north-wall x −0.7, between microscope and banker's lamp.
+    smyth: { position: [7.07, FLOOR_Y + 1.07, -3.7165], yaw: 0, width: 0.52, height: 0.32 },
+};

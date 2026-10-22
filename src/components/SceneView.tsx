@@ -21,9 +21,11 @@ import {
     HEIGHT,
     ROOM_BOUNDS,
     ROOM_ORDER,
+    PCS,
     SEATS,
     roomAt,
 } from "./roomLayout";
+import MonitorFeed from "./MonitorFeed";
 import { CHARACTER_BY_ID, type Character as GroupMember, type CharacterId } from "../data/characters";
 
 type SceneViewProps = {
@@ -33,6 +35,10 @@ type SceneViewProps = {
     onProgress: (progress: number) => void;
     /** The user clicked a character or a doorway leading to their room. */
     onNavigate: (id: CharacterId) => void;
+    /** The PC the camera is zoomed in on, if any. */
+    focusPcId: CharacterId | null;
+    onFocusPc: (id: CharacterId | null) => void;
+    onOpenYouTube: (request: { feed: CharacterId; videoId?: string }) => void;
 };
 
 const TOWARD_CAMERA = new THREE.Vector3(1, 0, 1).normalize();
@@ -55,7 +61,8 @@ function stepIndex(kind: "room" | "avatar", id: CharacterId) {
     return LOAD_STEPS.findIndex((step) => step.kind === kind && step.id === id);
 }
 
-export default function SceneView({ speakingId, addresseeId, expression, onProgress, onNavigate }: SceneViewProps) {
+export default function SceneView({ speakingId, addresseeId, expression, onProgress, onNavigate, focusPcId, onFocusPc, onOpenYouTube }: SceneViewProps) {
+    const [settledKey, setSettledKey] = useState<string | null>(null);
     const [step, setStep] = useState(0);
     const finishStep = useCallback((index: number) => {
         setStep((current) => current === index ? current + 1 : current);
@@ -96,6 +103,8 @@ export default function SceneView({ speakingId, addresseeId, expression, onProgr
                 camera={{ position: [1.5, -0.5, 1.5], fov: 40 }}
                 // Nothing is drawn until shaders and textures are prepared without blocking.
                 frameloop={roomReady ? "always" : "never"}
+                // Clicking into the room leaves the PC.
+                onPointerMissed={() => { if (focusPcId) onFocusPc(null); }}
             >
                 <color attach="background" args={["#2a1d16"]} />
                 <ambientLight intensity={1.4} />
@@ -139,7 +148,17 @@ export default function SceneView({ speakingId, addresseeId, expression, onProgr
                     <DoorwayHotspot key={doorway.x} doorway={doorway} onNavigate={onNavigate} />
                 ))}
                 <OrbitControls makeDefault enablePan enableZoom enableRotate />
-                <CameraRig roomId={addresseeId} />
+                {ROOM_ORDER.map((id) => (
+                    <PcScreenSpot
+                        key={id}
+                        id={id}
+                        focused={focusPcId === id}
+                        settled={settledKey === `pc:${id}`}
+                        onFocus={onFocusPc}
+                        onOpenYouTube={onOpenYouTube}
+                    />
+                ))}
+                <CameraRig roomId={addresseeId} focusPcId={focusPcId} onSettled={setSettledKey} />
             </Canvas>
         </div>
     );
@@ -159,36 +178,68 @@ function viewOf(id: CharacterId, width: number, height: number) {
     return { position, target, fov: aspect < 1 ? 62 : 40 };
 }
 
+/** The camera's view straight onto a character's PC screen, filling most of the free space. */
+function pcViewOf(id: CharacterId, width: number, height: number) {
+    const pc = PCS[id];
+    const aspect = width / height;
+    const fov = aspect < 1 ? 62 : 40;
+    const tanHalf = Math.tan(THREE.MathUtils.degToRad(fov / 2));
+    const fill = 0.68;
+    const distance = Math.max((pc.width / 2 / fill) / (tanHalf * aspect), (pc.height / 2 / fill) / tanHalf);
+    const normal = new THREE.Vector3(Math.sin(pc.yaw), 0, Math.cos(pc.yaw));
+    const right = new THREE.Vector3(Math.cos(pc.yaw), 0, -Math.sin(pc.yaw));
+    const target = new THREE.Vector3(...pc.position);
+    // Keep the screen clear of the transcript: left quarter on wide screens, top half on phones.
+    if (width >= 900) target.addScaledVector(right, -tanHalf * aspect * distance * 0.3);
+    if (aspect < 1) target.y += tanHalf * distance * 0.3;
+    return { position: target.clone().addScaledVector(normal, distance), target, fov };
+}
+
+type Flight = { curve: THREE.CatmullRomCurve3; from: THREE.Vector3; to: THREE.Vector3; start: number; duration: number; key: string };
+
 /**
- * Keeps the camera on the addressed character's room. Switching rooms flies the
- * camera through the doorways in between; afterwards the user can orbit freely
- * inside that room.
+ * Keeps the camera on the addressed character's room, or on a PC when one is
+ * focused. Moving to another room flies through the doorways in between;
+ * afterwards the user can orbit freely inside the room (not at a PC).
  */
-function CameraRig({ roomId }: { roomId: CharacterId }) {
+function CameraRig({ roomId, focusPcId, onSettled }: {
+    roomId: CharacterId;
+    focusPcId: CharacterId | null;
+    /** Called with "room:<id>" or "pc:<id>" once the camera has arrived. */
+    onSettled: (key: string) => void;
+}) {
     const { camera, size, controls } = useThree();
-    const flight = useRef<{ curve: THREE.CatmullRomCurve3; from: THREE.Vector3; to: THREE.Vector3; start: number; duration: number } | null>(null);
-    const shownRoom = useRef<CharacterId | null>(null);
+    const flight = useRef<Flight | null>(null);
+    const shown = useRef<string | null>(null);
     const lookTarget = useRef(new THREE.Vector3());
+    const destination = focusPcId ?? roomId;
+    const key = focusPcId ? `pc:${focusPcId}` : `room:${roomId}`;
 
     useEffect(() => {
         const perspective = camera as THREE.PerspectiveCamera;
-        const view = viewOf(roomId, size.width, size.height);
+        const view = focusPcId ? pcViewOf(focusPcId, size.width, size.height) : viewOf(roomId, size.width, size.height);
         perspective.fov = view.fov;
         perspective.updateProjectionMatrix();
         const orbit = controls as OrbitControlsImpl | null;
 
-        if (shownRoom.current === null || shownRoom.current === roomId) {
-            // First frame or a resize: just frame the character.
+        if (shown.current === null || shown.current === key) {
+            // First frame or a resize: just frame it.
             camera.position.copy(view.position);
             orbit?.target.copy(view.target);
-            if (orbit) orbit.update(); else camera.lookAt(view.target);
-            shownRoom.current = roomId;
+            if (orbit) {
+                orbit.enabled = !focusPcId;
+                orbit.update();
+            } else {
+                camera.lookAt(view.target);
+            }
+            shown.current = key;
+            onSettled(key);
             return;
         }
 
-        const fromRoom = roomAt(camera.position.x, camera.position.z) ?? shownRoom.current;
+        const fromRoom = roomAt(camera.position.x, camera.position.z) ?? destination;
         const from = ROOM_ORDER.indexOf(fromRoom);
-        const to = ROOM_ORDER.indexOf(roomId);
+        const to = ROOM_ORDER.indexOf(destination);
         const eyeY = FLOOR_Y + 1.5;
         const points = [camera.position.clone()];
         const direction = Math.sign(to - from);
@@ -205,11 +256,14 @@ function CameraRig({ roomId }: { roomId: CharacterId }) {
             from: orbit?.target.clone() ?? view.target.clone(),
             to: view.target,
             start: performance.now(),
-            duration: 700 + 900 * doors,
+            duration: (doors ? 700 : 900) + 900 * doors,
+            key,
         };
         if (orbit) orbit.enabled = false;
-        shownRoom.current = roomId;
-    }, [camera, size.width, size.height, controls, roomId]);
+        shown.current = key;
+        // onSettled is stable (a state setter).
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [camera, size.width, size.height, controls, key]);
 
     useFrame(() => {
         const orbit = controls as OrbitControlsImpl | null;
@@ -218,7 +272,7 @@ function CameraRig({ roomId }: { roomId: CharacterId }) {
             const t = Math.min(1, (performance.now() - current.start) / current.duration);
             const eased = easeInOut(t);
             camera.position.copy(current.curve.getPointAt(eased));
-            // Look along the path, starting from the old focus and ending on the character.
+            // Look along the path, starting from the old focus and ending on the destination.
             const ahead = current.curve.getPointAt(Math.min(1, eased + 0.12));
             ahead.y = FLOOR_Y + 1.4;
             lookTarget.current.lerpVectors(current.from, ahead, THREE.MathUtils.smoothstep(eased, 0, 0.25));
@@ -229,15 +283,17 @@ function CameraRig({ roomId }: { roomId: CharacterId }) {
                 flight.current = null;
                 if (orbit) {
                     orbit.target.copy(current.to);
-                    orbit.enabled = true;
+                    // Stay put in front of a PC; orbit freely in a room.
+                    orbit.enabled = !current.key.startsWith("pc:");
                     orbit.update();
                 }
+                onSettled(current.key);
             }
             return;
         }
 
         // Keep the orbiting camera inside the current room.
-        const bounds = ROOM_BOUNDS[roomId];
+        const bounds = ROOM_BOUNDS[destination];
         const margin = 0.25;
         camera.position.x = THREE.MathUtils.clamp(camera.position.x, bounds.minX + margin, bounds.maxX - margin);
         camera.position.y = THREE.MathUtils.clamp(camera.position.y, FLOOR_Y + 0.2, FLOOR_Y + HEIGHT - 0.2);
@@ -252,6 +308,68 @@ const isClick = (event: ThreeEvent<MouseEvent>) => event.delta < 6;
 
 function setCursor(pointer: boolean) {
     document.body.style.cursor = pointer ? "pointer" : "";
+}
+
+/** Pixel width of the feed page on a PC screen; drei maps it onto the screen's real width. */
+const FEED_PIXELS = 520;
+
+function PcScreenSpot({ id, focused, settled, onFocus, onOpenYouTube }: {
+    id: CharacterId;
+    focused: boolean;
+    settled: boolean;
+    onFocus: (id: CharacterId) => void;
+    onOpenYouTube: (request: { feed: CharacterId; videoId?: string }) => void;
+}) {
+    const pc = PCS[id];
+    const [hovered, setHovered] = useState(false);
+    const character = CHARACTER_BY_ID[id];
+
+    return (
+        <group position={pc.position} rotation={[0, pc.yaw, 0]}>
+            {!focused && (
+                <mesh
+                    position={[0, 0, 0.004]}
+                    onPointerOver={(event) => { event.stopPropagation(); setHovered(true); setCursor(true); }}
+                    onPointerOut={() => { setHovered(false); setCursor(false); }}
+                    onClick={(event) => {
+                        if (!isClick(event)) return;
+                        event.stopPropagation();
+                        setHovered(false);
+                        setCursor(false);
+                        onFocus(id);
+                    }}
+                >
+                    <planeGeometry args={[pc.width, pc.height]} />
+                    <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+                    {hovered && (
+                        <Html center position={[0, pc.height / 2 + 0.09, 0]} pointerEvents="none" zIndexRange={[30, 0]}>
+                            <div className="sceneTooltip" style={{ "--member-color": "#ff4e4e" } as CSSProperties}>
+                                <strong>▶ {character.name}'s YouTube</strong>
+                                <small>Click to sit down at the PC</small>
+                            </div>
+                        </Html>
+                    )}
+                </mesh>
+            )}
+            {/* Real page on the screen once the camera is in front of it (DOM would show through walls otherwise). */}
+            {focused && settled && (
+                <Html
+                    transform
+                    position={[0, 0, 0.003]}
+                    distanceFactor={(400 * pc.width) / FEED_PIXELS}
+                    zIndexRange={[20, 0]}
+                >
+                    <MonitorFeed
+                        characterId={id}
+                        width={FEED_PIXELS}
+                        height={Math.round((FEED_PIXELS * pc.height) / pc.width)}
+                        onOpenVideo={(videoId) => onOpenYouTube({ feed: id, videoId })}
+                        onOpenYouTube={() => onOpenYouTube({ feed: id })}
+                    />
+                </Html>
+            )}
+        </group>
+    );
 }
 
 /** Invisible plane in a doorway: hover shows where it leads, click goes there. */
@@ -375,7 +493,12 @@ function loadIdleAnimation() {
     if (!idleAnimation) {
         const loader = new GLTFLoader();
         loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
-        idleAnimation = loader.loadAsync("/animations/idle.vrma");
+        // A failed fetch would leave an avatar in a T-pose; try a couple more times.
+        const attempt = (retries: number): Promise<GLTF> => loader.loadAsync("/animations/idle.vrma").catch((error) => {
+            if (retries <= 0) throw error;
+            return new Promise((resolve) => setTimeout(resolve, 800)).then(() => attempt(retries - 1));
+        });
+        idleAnimation = attempt(2);
         idleAnimation.catch(() => { idleAnimation = null; });
     }
     return idleAnimation;

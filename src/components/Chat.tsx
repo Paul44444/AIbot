@@ -41,7 +41,7 @@ import {
 import { GroupConversation, type DiagramRequest, type RaisedHand } from "../utils/groupConversation";
 import type { DiagramSpec } from "../types/diagram";
 import type { DiagramState, SketchEntry, SketchLibrary } from "./DiagramPanel";
-import type { YouTubeHandle } from "./YouTubePanel";
+import type { YouTubeHandle, YouTubeRequest } from "./YouTubePanel";
 import { formatTime, type VideoDetails } from "../types/youtube";
 import { CHARACTERS, CHARACTER_BY_ID, type CharacterId } from "../data/characters";
 
@@ -816,6 +816,9 @@ export default function Chat({
     };
 
     const [youtubeOpen, setYoutubeOpen] = useState(false);
+    // What to show when the viewer is opened from a character's PC.
+    const [youtubeRequest, setYoutubeRequest] = useState<YouTubeRequest | null>(null);
+    const [focusPc, setFocusPc] = useState<CharacterId | null>(null);
     const [video, setVideo] = useState<VideoDetails | null>(null);
     const [videoPlaying, setVideoPlaying] = useState(false);
     const youtubeRef = useRef<YouTubeHandle>(null);
@@ -907,7 +910,26 @@ export default function Chat({
 
     const addressCharacter = (id: CharacterId) => {
         primeSpeechPlayback();
+        setFocusPc(null);
         void ensureGroup().setAddressee(id).catch((error) => console.error("Could not switch speaker:", error));
+    };
+
+    /** Sitting down at a character's PC also means talking to them. */
+    const focusOnPc = (id: CharacterId | null) => {
+        if (id && id !== addressee) addressCharacter(id);
+        setFocusPc(id);
+    };
+
+    useEffect(() => {
+        if (!focusPc) return;
+        const leave = (event: KeyboardEvent) => { if (event.key === "Escape") setFocusPc(null); };
+        window.addEventListener("keydown", leave);
+        return () => window.removeEventListener("keydown", leave);
+    }, [focusPc]);
+
+    const openYouTube = (request: { feed: CharacterId; videoId?: string }) => {
+        setYoutubeRequest({ ...request, nonce: Date.now() });
+        setYoutubeOpen(true);
     };
 
     const letCharacterSpeak = (hand: RaisedHand) => {
@@ -1344,6 +1366,9 @@ ${topicGuidance}
                         expression={currentExpression}
                         onProgress={updateSceneLoadingProgress}
                         onNavigate={addressCharacter}
+                        focusPcId={focusPc}
+                        onFocusPc={focusOnPc}
+                        onOpenYouTube={openYouTube}
                     />
                 </Suspense>
             )}
@@ -1354,10 +1379,19 @@ ${topicGuidance}
                 </Suspense>
             )}
 
+            {focusPc && !youtubeOpen && (
+                <button type="button" className="pcBackButton" onClick={() => setFocusPc(null)}>
+                    ← Back to {CHARACTER_BY_ID[focusPc].name}
+                </button>
+            )}
+
             <button
                 className="youtubeButton"
                 type="button"
-                onClick={() => setYoutubeOpen((open) => !open)}
+                onClick={() => {
+                    setYoutubeRequest(null);
+                    setYoutubeOpen((open) => !open);
+                }}
                 aria-expanded={youtubeOpen}
                 aria-label="Watch YouTube together"
                 data-tooltip="Watch videos together with the group"
@@ -1373,6 +1407,7 @@ ${topicGuidance}
                 <Suspense fallback={null}>
                     <LazyYouTubePanel
                         ref={youtubeRef}
+                        request={youtubeRequest}
                         duck={realtimeSpeaking}
                         micPaused={microphoneEnabled && videoPlaying}
                         onClose={() => {
