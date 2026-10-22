@@ -1,3 +1,5 @@
+import type { DiagramSpec } from "./diagram";
+
 export type Role = "user" | "assistant" | "system";
 
 export interface Message {
@@ -7,6 +9,8 @@ export interface Message {
     id?: string;
     /** Which group member said an assistant message. */
     speaker?: string;
+    /** A whiteboard sketch, reopenable from the transcript. */
+    diagram?: DiagramSpec;
 }
 
 export interface ChatRequest {

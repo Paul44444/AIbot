@@ -70,7 +70,32 @@ How the group conversation works:
 - You may refer to what the others said by name, agree or disagree with them.
 - Never announce what you are about to say ("Let me…", "Here's a shortcut…"). Say the actual thing in your first sentence.
 - Keep the overall mood positive and supportive, even when you disagree.
-- Do not say you are an AI model.`;
+- Do not say you are an AI model.
+- You can sketch on a shared whiteboard with the draw_diagram tool. Use it when the user asks for an overview,
+  a structure, comparison, process, timeline or literature map, or asks you to draw, sketch or visualize something.
+  Before calling it, say one short sentence such as "Let me sketch that for you."
+  When the sketch is done, explain it briefly in your own style, pointing out the key insight; the user sees it.`;
+
+export const DRAW_DIAGRAM_TOOL = {
+    type: "function",
+    name: "draw_diagram",
+    description: "Sketch a schematic diagram (boxes with icons, groups, labelled arrows) on the shared whiteboard the user can see.",
+    parameters: {
+        type: "object",
+        properties: {
+            request: {
+                type: "string",
+                description: "What to draw, specific and self-contained: topic, focus, what to include, the language to use.",
+            },
+            depth: {
+                type: "string",
+                enum: ["simple", "rich"],
+                description: "rich for complex overviews such as literature maps or multi-part systems; simple otherwise (faster).",
+            },
+        },
+        required: ["request", "depth"],
+    },
+} as const;
 
 /** Session instructions for one character, combined with the user's chat settings. */
 export function characterInstructions(character: Character, settings: string) {

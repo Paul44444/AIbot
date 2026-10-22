@@ -2,6 +2,7 @@ import { sendRealtimeText, startRealtimeVoiceSession } from "./realtimeVoice";
 import {
     CHARACTERS,
     CHARACTER_BY_ID,
+    DRAW_DIAGRAM_TOOL,
     characterInstructions,
     interjectionInstructions,
     type CharacterId,
@@ -10,6 +11,14 @@ import {
 type Session = Awaited<ReturnType<typeof startRealtimeVoiceSession>>;
 
 export type RaisedHand = { id: CharacterId; teaser: string };
+
+export type DiagramRequest = {
+    id: CharacterId;
+    callId: string;
+    request: string;
+    depth: "simple" | "rich";
+    lines: { speaker: string; text: string }[];
+};
 
 export type GroupCallbacks = {
     onUserSpeechStart: () => void;
@@ -22,6 +31,8 @@ export type GroupCallbacks = {
     onHands: (hands: RaisedHand[]) => void;
     onAddresseeChange: (id: CharacterId) => void;
     onConnectionError: (id: CharacterId, error: unknown) => void;
+    /** A character wants to sketch; answer with finishDiagram once it is drawn. */
+    onDiagramRequest: (request: DiagramRequest) => void;
 };
 
 const HISTORY_FOR_LATE_JOINERS = 12;
@@ -59,6 +70,8 @@ export class GroupConversation {
     private directorRun = 0;
     // Hands go up once the current speaker has finished, not while they talk.
     private pendingHands: RaisedHand[] | null = null;
+    // Nobody raises a hand while someone is busy sketching.
+    private sketching = false;
 
     private callbacks: GroupCallbacks;
     private signal: AbortSignal;
@@ -135,6 +148,18 @@ export class GroupConversation {
         }));
     }
 
+    /** Tells the character how the sketch went, so they explain it (or apologise). */
+    finishDiagram(id: CharacterId, callId: string, result: object) {
+        this.sketching = false;
+        const session = this.ready.get(id);
+        if (!session || session.dc.readyState !== "open") return;
+        session.dc.send(JSON.stringify({
+            type: "conversation.item.create",
+            item: { type: "function_call_output", call_id: callId, output: JSON.stringify(result) },
+        }));
+        session.dc.send(JSON.stringify({ type: "response.create", response: { output_modalities: ["audio"] } }));
+    }
+
     dismissHands() {
         this.directorRun += 1;
         this.pendingHands = null;
@@ -169,6 +194,7 @@ export class GroupConversation {
                 onAssistantTextDone: () => this.handleReplyDone(id),
                 onAudioStart: () => this.setSpeaking(id),
                 onAudioDone: () => { if (this.speaking === id) this.setSpeaking(null); },
+                onFunctionCall: (call) => this.handleFunctionCall(id, call),
             });
             await waitForOpen(session.dc);
             this.signal.throwIfAborted();
@@ -205,6 +231,8 @@ export class GroupConversation {
                 type: "realtime",
                 output_modalities: ["audio"],
                 instructions: characterInstructions(CHARACTER_BY_ID[id], this.settings),
+                tools: [DRAW_DIAGRAM_TOOL],
+                tool_choice: "auto",
             },
         }));
     }
@@ -278,6 +306,29 @@ export class GroupConversation {
         });
     }
 
+    private handleFunctionCall(id: CharacterId, call: { name: string; callId: string; arguments: string }) {
+        if (call.name !== DRAW_DIAGRAM_TOOL.name) return;
+        let args: { request?: string; depth?: string } = {};
+        try {
+            args = JSON.parse(call.arguments);
+        } catch {
+            // Fall back to the last thing the user said.
+        }
+        const request = args.request?.trim() || [...this.lines].reverse().find((line) => line.speaker.startsWith("User"))?.text || "";
+        this.sketching = true;
+        this.dismissHands();
+        const name = CHARACTER_BY_ID[id].name;
+        this.lines.push({ speaker: name, text: `(sketches on the whiteboard: ${request})` });
+        this.injectIntoOthers(id, `[${name}]: (sketches on the shared whiteboard: ${request})`);
+        this.callbacks.onDiagramRequest({
+            id,
+            callId: call.callId,
+            request,
+            depth: args.depth === "rich" ? "rich" : "simple",
+            lines: this.lines.slice(-14),
+        });
+    }
+
     private handleReplyDone(id: CharacterId) {
         const text = (this.replies.get(id) ?? "").trim();
         this.replies.delete(id);
@@ -318,7 +369,7 @@ export class GroupConversation {
             });
             const { hands } = await response.json() as { hands: RaisedHand[] };
             // Someone started talking meanwhile; the moment has passed.
-            if (run !== this.directorRun || this.signal.aborted || !hands.length) return;
+            if (run !== this.directorRun || this.signal.aborted || this.sketching || !hands.length) return;
             if (this.speaking) this.pendingHands = hands;
             else this.showHands(hands);
         } catch (error) {

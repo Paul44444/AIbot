@@ -38,7 +38,9 @@ import {
     type SpeechPlaybackState,
 } from "../utils/speakText";
 
-import { GroupConversation, type RaisedHand } from "../utils/groupConversation";
+import { GroupConversation, type DiagramRequest, type RaisedHand } from "../utils/groupConversation";
+import type { DiagramSpec } from "../types/diagram";
+import type { DiagramState } from "./DiagramPanel";
 import { CHARACTERS, CHARACTER_BY_ID, type CharacterId } from "../data/characters";
 
 //import ChatTranscript from "./ChatTranscript";
@@ -98,10 +100,12 @@ function ChatTranscript({
                             messages,
                             loading,
                             assistantName,
+                            onOpenDiagram,
                         }: {
     messages: Message[];
     loading: boolean;
     assistantName: string;
+    onOpenDiagram: (message: Message) => void;
 }) {
     const [wordInfo, setWordInfo] = useState<WordInfo | null>(null);
     const [lookupWord, setLookupWord] = useState<string | null>(null);
@@ -146,7 +150,11 @@ function ChatTranscript({
                         <strong style={msg.speaker && msg.speaker in CHARACTER_BY_ID ? { color: CHARACTER_BY_ID[msg.speaker as CharacterId].color } : undefined}>
                             {msg.role === "user" ? "You" : CHARACTER_BY_ID[msg.speaker as CharacterId]?.name ?? assistantName}:
                         </strong>{" "}
-                        <InteractiveText
+                        {msg.diagram ? (
+                            <button type="button" className="transcriptSketch" onClick={() => onOpenDiagram(msg)}>
+                                {msg.content} <span>Open sketch</span>
+                            </button>
+                        ) : <InteractiveText
                             text={msg.content}
                             onWord={showWordInfo}
                             onWordClick={msg.role === "assistant" ? (characterIndex) => {
@@ -154,7 +162,7 @@ function ChatTranscript({
                                     console.error("Could not seek speech:", error);
                                 });
                             } : undefined}
-                        />
+                        />}
                     </div>
                 ))}
 
@@ -602,6 +610,7 @@ type ChatProps = {
 };
 
 const LazySceneView = lazy(() => import("./SceneView"));
+const LazyDiagramPanel = lazy(() => import("./DiagramPanel"));
 let sceneLoadingHideTimer = 0;
 
 function updateSceneLoadingProgress(progress: number) {
@@ -758,6 +767,39 @@ export default function Chat({
         }
     };
 
+    const [diagram, setDiagram] = useState<DiagramState | null>(null);
+
+    const drawDiagram = async (request: DiagramRequest) => {
+        const signal = conversationAbortRef.current.signal;
+        const artist = CHARACTER_BY_ID[request.id];
+        const sketch = { artistName: artist.name, artistColor: artist.color, request: request.request };
+        setDiagram({ ...sketch, status: "drawing" });
+        try {
+            const response = await fetch("/api/diagram", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ request: request.request, depth: request.depth, lines: request.lines, artist: artist.name }),
+                signal,
+            });
+            if (!response.ok) throw new Error(`Diagram failed: ${response.status}`);
+            const spec = await response.json() as DiagramSpec;
+            if (signal.aborted) return;
+            setDiagram({ ...sketch, status: "ready", spec });
+            setRealtimeMessages((prev) => [...prev, { role: "assistant", speaker: request.id, content: `✏️ ${spec.title}`, diagram: spec }]);
+            groupRef.current?.finishDiagram(request.id, request.callId, {
+                ok: true,
+                title: spec.title,
+                boxes: spec.nodes.map((node) => node.label),
+                takeaway: spec.takeaway,
+            });
+        } catch (error) {
+            if (signal.aborted) return;
+            console.error("Could not draw the sketch:", error);
+            setDiagram({ ...sketch, status: "error" });
+            groupRef.current?.finishDiagram(request.id, request.callId, { ok: false, error: "The whiteboard sketch failed this time." });
+        }
+    };
+
     const groupRef = useRef<GroupConversation | null>(null);
     const settingsRef = useRef("");
     // Message id of each character's reply that is still streaming.
@@ -815,6 +857,7 @@ export default function Chat({
             },
             onHands: setHands,
             onAddresseeChange: setAddressee,
+            onDiagramRequest: (request) => { void drawDiagram(request); },
             onConnectionError: (id, error) => {
                 console.error(`${CHARACTER_BY_ID[id].name} could not join:`, error);
                 setSpeechPreparing(false);
@@ -1043,6 +1086,7 @@ ${topicGuidance}
             setAddressee("jenny");
             setSpeakingId(null);
             setHands([]);
+            setDiagram(null);
             setMicrophoneEnabled(false);
             setMicrophoneConnecting(false);
             setRealtimeSpeaking(false);
@@ -1213,6 +1257,12 @@ ${topicGuidance}
                 </Suspense>
             )}
 
+            {diagram && (
+                <Suspense fallback={null}>
+                    <LazyDiagramPanel diagram={diagram} onClose={() => setDiagram(null)} />
+                </Suspense>
+            )}
+
             <GroupBar
                 addressee={addressee}
                 speakingId={speakingId}
@@ -1266,6 +1316,10 @@ ${topicGuidance}
                 messages={displayedMessages}
                 loading={loading}
                 assistantName={CHARACTER_BY_ID[addressee].name}
+                onOpenDiagram={(message) => {
+                    const artist = CHARACTER_BY_ID[message.speaker as CharacterId] ?? CHARACTER_BY_ID[addressee];
+                    setDiagram({ status: "ready", artistName: artist.name, artistColor: artist.color, request: "", spec: message.diagram });
+                }}
             />
 
             {(gapWordsLoading || gapWordsError || gapWords.length > 0) && (

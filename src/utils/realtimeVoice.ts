@@ -12,6 +12,8 @@ export async function startRealtimeVoiceSession(options?: {
     onUserSpeechStart?: () => void;
     onUserSpeechRejected?: () => void;
     onMicrophoneReady?: () => void;
+    /** The model called one of the session's tools. */
+    onFunctionCall?: (call: { name: string; callId: string; arguments: string }) => void;
     muteRemoteAudio?: boolean;
 }) {
     const pc = new RTCPeerConnection();
@@ -122,6 +124,10 @@ export async function startRealtimeVoiceSession(options?: {
 
             if (msg.type === "response.output_audio_transcript.done") {
                 options?.onAssistantTextDone?.();
+            }
+
+            if (msg.type === "response.output_item.done" && msg.item?.type === "function_call") {
+                options?.onFunctionCall?.({ name: msg.item.name, callId: msg.item.call_id, arguments: msg.item.arguments ?? "{}" });
             }
 
             if (msg.type === "output_audio_buffer.started") {
