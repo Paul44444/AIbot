@@ -1,4 +1,5 @@
 import { lazy, Suspense, useImperativeHandle, useMemo, useState } from "react";
+import { outdoorInput } from "./outdoor/input";
 import type { CSSProperties, Ref } from "react";
 import type { Message } from "../types/chat";
 
@@ -447,6 +448,59 @@ function GroupBar({
     );
 }
 
+/** Walking hints outside; a joystick on touch screens. */
+function OutdoorHelp() {
+    const [showHint, setShowHint] = useState(true);
+    const touch = useMemo(() => window.matchMedia("(pointer: coarse)").matches, []);
+    const knob = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const timer = window.setTimeout(() => setShowHint(false), 7000);
+        return () => {
+            window.clearTimeout(timer);
+            outdoorInput.x = 0;
+            outdoorInput.y = 0;
+        };
+    }, []);
+
+    const steer = (event: React.PointerEvent<HTMLDivElement>) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        const dx = (event.clientX - rect.left - rect.width / 2) / (rect.width / 2);
+        const dy = (event.clientY - rect.top - rect.height / 2) / (rect.height / 2);
+        const length = Math.min(1, Math.hypot(dx, dy));
+        const angle = Math.atan2(dy, dx);
+        outdoorInput.x = Math.cos(angle) * length;
+        outdoorInput.y = -Math.sin(angle) * length;
+        if (knob.current) knob.current.style.transform = `translate(${Math.cos(angle) * length * 28}px, ${Math.sin(angle) * length * 28}px)`;
+    };
+    const release = () => {
+        outdoorInput.x = 0;
+        outdoorInput.y = 0;
+        if (knob.current) knob.current.style.transform = "";
+    };
+
+    return (
+        <>
+            {showHint && (
+                <p className="outdoorHint" role="status">
+                    {touch ? "Use the joystick to walk · drag to look around" : "WASD or arrow keys to walk · Shift to run · drag to look around"}
+                </p>
+            )}
+            {touch && (
+                <div
+                    className="outdoorJoystick"
+                    onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); steer(event); }}
+                    onPointerMove={(event) => { if (event.buttons) steer(event); }}
+                    onPointerUp={release}
+                    onPointerCancel={release}
+                    aria-label="Walk"
+                >
+                    <div ref={knob} />
+                </div>
+            )}
+        </>
+    );
+}
+
 function ChatInput({
                            input,
                            setInput,
@@ -819,6 +873,7 @@ export default function Chat({
     // What to show when the viewer is opened from a character's PC.
     const [youtubeRequest, setYoutubeRequest] = useState<YouTubeRequest | null>(null);
     const [focusPc, setFocusPc] = useState<CharacterId | null>(null);
+    const [outside, setOutside] = useState(false);
     const [video, setVideo] = useState<VideoDetails | null>(null);
     const [videoPlaying, setVideoPlaying] = useState(false);
     const youtubeRef = useRef<YouTubeHandle>(null);
@@ -911,6 +966,8 @@ export default function Chat({
     const addressCharacter = (id: CharacterId) => {
         primeSpeechPlayback();
         setFocusPc(null);
+        // Picking someone takes you back inside to their room.
+        setOutside(false);
         void ensureGroup().setAddressee(id).catch((error) => console.error("Could not switch speaker:", error));
     };
 
@@ -1369,6 +1426,11 @@ ${topicGuidance}
                         focusPcId={focusPc}
                         onFocusPc={focusOnPc}
                         onOpenYouTube={openYouTube}
+                        outside={outside}
+                        onOutsideChange={(value) => {
+                            setFocusPc(null);
+                            setOutside(value);
+                        }}
                     />
                 </Suspense>
             )}
@@ -1378,6 +1440,20 @@ ${topicGuidance}
                     <LazyDiagramPanel diagram={diagram} library={sketchLibrary} onOpen={openSketch} onClose={() => setDiagram(null)} />
                 </Suspense>
             )}
+
+            {!focusPc && sceneStarted && (
+                <button
+                    type="button"
+                    className="pcBackButton"
+                    onClick={() => {
+                        setFocusPc(null);
+                        setOutside((value) => !value);
+                    }}
+                >
+                    {outside ? "🏠 Back inside" : "🌲 Go outside"}
+                </button>
+            )}
+            {outside && <OutdoorHelp />}
 
             {focusPc && !youtubeOpen && (
                 <button type="button" className="pcBackButton" onClick={() => setFocusPc(null)}>

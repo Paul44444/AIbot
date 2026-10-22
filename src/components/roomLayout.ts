@@ -67,3 +67,19 @@ export const PCS: Record<CharacterId, PcScreen> = {
     // Smyth's study desk at north-wall x −0.7, between microscope and banker's lamp.
     smyth: { position: [7.07, FLOOR_Y + 1.07, -3.7165], yaw: 0, width: 0.52, height: 0.32 },
 };
+
+/** The front door in Jenny's south wall leads outside; x is its centre, z the middle of the wall gap. */
+export const FRONT_DOOR = { x: 3.2, z: ROOM_BOUNDS.jenny.maxZ + WALL_GAP / 2 };
+
+/**
+ * The house seen from outside: each room plus the wall gap around it. Together
+ * they also block walking through the house from outside.
+ */
+export const HOUSE_BLOCKS: Bounds[] = ROOM_ORDER.map((id) => {
+    const b = ROOM_BOUNDS[id];
+    return { minX: b.minX - WALL_GAP, maxX: b.maxX + WALL_GAP, minZ: b.minZ - WALL_GAP, maxZ: b.maxZ + WALL_GAP };
+});
+
+export function insideHouse(x: number, z: number, margin = 0) {
+    return HOUSE_BLOCKS.some((b) => x > b.minX - margin && x < b.maxX + margin && z > b.minZ - margin && z < b.maxZ + margin);
+}

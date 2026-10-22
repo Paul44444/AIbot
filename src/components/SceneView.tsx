@@ -21,11 +21,15 @@ import {
     HEIGHT,
     ROOM_BOUNDS,
     ROOM_ORDER,
+    FRONT_DOOR,
     PCS,
     SEATS,
+    insideHouse,
     roomAt,
 } from "./roomLayout";
 import MonitorFeed from "./MonitorFeed";
+import Outdoors, { OUTSIDE_START, SKY_HORIZON } from "./outdoor/Outdoors";
+import { heightAt } from "./outdoor/world";
 import { CHARACTER_BY_ID, type Character as GroupMember, type CharacterId } from "../data/characters";
 
 type SceneViewProps = {
@@ -39,6 +43,9 @@ type SceneViewProps = {
     focusPcId: CharacterId | null;
     onFocusPc: (id: CharacterId | null) => void;
     onOpenYouTube: (request: { feed: CharacterId; videoId?: string }) => void;
+    /** Walking in the forest outside instead of being in a room. */
+    outside: boolean;
+    onOutsideChange: (outside: boolean) => void;
 };
 
 const TOWARD_CAMERA = new THREE.Vector3(1, 0, 1).normalize();
@@ -61,13 +68,19 @@ function stepIndex(kind: "room" | "avatar", id: CharacterId) {
     return LOAD_STEPS.findIndex((step) => step.kind === kind && step.id === id);
 }
 
-export default function SceneView({ speakingId, addresseeId, expression, onProgress, onNavigate, focusPcId, onFocusPc, onOpenYouTube }: SceneViewProps) {
+export default function SceneView({ speakingId, addresseeId, expression, onProgress, onNavigate, focusPcId, onFocusPc, onOpenYouTube, outside, onOutsideChange }: SceneViewProps) {
     const [settledKey, setSettledKey] = useState<string | null>(null);
+    const walkingOutside = settledKey === "outside";
     const [step, setStep] = useState(0);
     const finishStep = useCallback((index: number) => {
         setStep((current) => current === index ? current + 1 : current);
     }, []);
     const roomReady = step > stepIndex("room", "jenny");
+    // The forest starts with a few tiles in front of the door once everyone has loaded
+    // (or right away when someone goes outside earlier), and grows when walked in.
+    const [outdoorsMounted, setOutdoorsMounted] = useState(false);
+    const everyoneLoaded = step >= LOAD_STEPS.length;
+    useEffect(() => { if (outside || everyoneLoaded) setOutdoorsMounted(true); }, [outside, everyoneLoaded]);
     const revealed = useRef(false);
 
     useEffect(() => {
@@ -107,6 +120,8 @@ export default function SceneView({ speakingId, addresseeId, expression, onProgr
                 onPointerMissed={() => { if (focusPcId) onFocusPc(null); }}
             >
                 <color attach="background" args={["#2a1d16"]} />
+                {/* Fog exists from the start: adding it later would recompile every material. Rooms are too small to show it. */}
+                <fog attach="fog" args={[SKY_HORIZON, 35, 82]} />
                 <ambientLight intensity={1.4} />
                 <hemisphereLight args={["#ffe9d2", "#c99a74", 0.6]} />
                 <directionalLight position={[2, 3, -5]} color="#ffeedd" intensity={1.1} />
@@ -126,7 +141,12 @@ export default function SceneView({ speakingId, addresseeId, expression, onProgr
                     if (index > step) return null;
                     if (loadStep.kind === "room") {
                         return (
-                            <DeferredRoom key={`room-${loadStep.id}`} onReady={() => finishStep(index)}>
+                            <DeferredRoom
+                                key={`room-${loadStep.id}`}
+                                // Jenny's room stays: the open front door looks into it.
+                                hidden={walkingOutside && loadStep.id !== "jenny"}
+                                onReady={() => finishStep(index)}
+                            >
                                 {ROOMS[loadStep.id]()}
                             </DeferredRoom>
                         );
@@ -140,6 +160,7 @@ export default function SceneView({ speakingId, addresseeId, expression, onProgr
                             expression={speakingId === loadStep.id ? expression : "relaxed"}
                             onReady={() => finishStep(index)}
                             onSelect={onNavigate}
+                            hidden={walkingOutside}
                         />
                     );
                 })}
@@ -158,7 +179,9 @@ export default function SceneView({ speakingId, addresseeId, expression, onProgr
                         onOpenYouTube={onOpenYouTube}
                     />
                 ))}
-                <CameraRig roomId={addresseeId} focusPcId={focusPcId} onSettled={setSettledKey} />
+                <FrontDoor open={outside} onOpen={() => onOutsideChange(true)} />
+                {outdoorsMounted && <Outdoors active={settledKey === "outside"} onReachDoor={() => onOutsideChange(false)} />}
+                <CameraRig roomId={addresseeId} focusPcId={focusPcId} outside={outside} onSettled={setSettledKey} />
             </Canvas>
         </div>
     );
@@ -195,6 +218,64 @@ function pcViewOf(id: CharacterId, width: number, height: number) {
     return { position: target.clone().addScaledVector(normal, distance), target, fov };
 }
 
+/** Just outside the front door, looking out into the forest. */
+function outsideView(width: number, height: number) {
+    const position = OUTSIDE_START.clone();
+    position.y = heightAt(position.x, position.z) + 1.6;
+    return { position, target: position.clone().add(new THREE.Vector3(0, -0.15, 6)), fov: width / height < 1 ? 62 : 55 };
+}
+
+/** The front door leaf in Jenny's south wall; it swings open when someone goes out. */
+function FrontDoor({ open, onOpen }: { open: boolean; onOpen: () => void }) {
+    const hinge = useRef<THREE.Group>(null);
+    const [hovered, setHovered] = useState(false);
+    useFrame((_, delta) => {
+        if (!hinge.current) return;
+        // Opens into the room; outside there is only the wall gap.
+        const target = open ? 1.8 : 0;
+        hinge.current.rotation.y += (target - hinge.current.rotation.y) * Math.min(1, delta * 5);
+    });
+    return (
+        <group ref={hinge} position={[FRONT_DOOR.x - DOORWAY_WIDTH / 2, FLOOR_Y, ROOM_BOUNDS.jenny.maxZ - 0.03]}>
+            <group position={[DOORWAY_WIDTH / 2, 0, 0]}>
+                <mesh
+                    position={[0, 1.03, 0]}
+                    onPointerOver={(event) => { event.stopPropagation(); setHovered(true); setCursor(true); }}
+                    onPointerOut={() => { setHovered(false); setCursor(false); }}
+                    onClick={(event) => {
+                        if (!isClick(event) || open) return;
+                        event.stopPropagation();
+                        setHovered(false);
+                        setCursor(false);
+                        onOpen();
+                    }}
+                >
+                    <boxGeometry args={[DOORWAY_WIDTH - 0.04, 2.06, 0.05]} />
+                    <meshStandardMaterial color="#8a5430" roughness={0.6} />
+                    {hovered && !open && (
+                        <Html center position={[0, 0.5, 0]} pointerEvents="none" zIndexRange={[30, 0]}>
+                            <div className="sceneTooltip" style={{ "--member-color": "#7fc28a" } as CSSProperties}>
+                                <strong>🌲 Go outside</strong>
+                                <small>Into the forest and to the lakes</small>
+                            </div>
+                        </Html>
+                    )}
+                </mesh>
+                {[[-0.2, 1.45], [0.2, 1.45], [-0.2, 0.55], [0.2, 0.55]].map(([x, y]) => (
+                    <mesh key={`${x}${y}`} position={[x, y, -0.03]}>
+                        <boxGeometry args={[0.3, y > 1 ? 0.75 : 0.85, 0.012]} />
+                        <meshStandardMaterial color="#7a4927" roughness={0.65} />
+                    </mesh>
+                ))}
+                <mesh position={[0.38, 1.0, -0.05]}>
+                    <sphereGeometry args={[0.035, 12, 10]} />
+                    <meshStandardMaterial color="#e3c27a" metalness={0.6} roughness={0.3} />
+                </mesh>
+            </group>
+        </group>
+    );
+}
+
 type Flight = { curve: THREE.CatmullRomCurve3; from: THREE.Vector3; to: THREE.Vector3; start: number; duration: number; key: string };
 
 /**
@@ -202,9 +283,10 @@ type Flight = { curve: THREE.CatmullRomCurve3; from: THREE.Vector3; to: THREE.Ve
  * focused. Moving to another room flies through the doorways in between;
  * afterwards the user can orbit freely inside the room (not at a PC).
  */
-function CameraRig({ roomId, focusPcId, onSettled }: {
+function CameraRig({ roomId, focusPcId, outside, onSettled }: {
     roomId: CharacterId;
     focusPcId: CharacterId | null;
+    outside: boolean;
     /** Called with "room:<id>" or "pc:<id>" once the camera has arrived. */
     onSettled: (key: string) => void;
 }) {
@@ -213,17 +295,25 @@ function CameraRig({ roomId, focusPcId, onSettled }: {
     const shown = useRef<string | null>(null);
     const lookTarget = useRef(new THREE.Vector3());
     const destination = focusPcId ?? roomId;
-    const key = focusPcId ? `pc:${focusPcId}` : `room:${roomId}`;
+    const key = outside ? "outside" : focusPcId ? `pc:${focusPcId}` : `room:${roomId}`;
 
     useEffect(() => {
         const perspective = camera as THREE.PerspectiveCamera;
-        const view = focusPcId ? pcViewOf(focusPcId, size.width, size.height) : viewOf(roomId, size.width, size.height);
+        const view = outside ? outsideView(size.width, size.height)
+            : focusPcId ? pcViewOf(focusPcId, size.width, size.height) : viewOf(roomId, size.width, size.height);
         perspective.fov = view.fov;
         perspective.updateProjectionMatrix();
         const orbit = controls as OrbitControlsImpl | null;
 
         if (shown.current === null || shown.current === key) {
             // First frame or a resize: just frame it.
+            camera.position.copy(view.position);
+            orbit?.target.copy(view.target);
+            if (outside) {
+                // A resize while walking outside: the walker owns the camera.
+                shown.current = key;
+                return;
+            }
             camera.position.copy(view.position);
             orbit?.target.copy(view.target);
             if (orbit) {
@@ -237,11 +327,18 @@ function CameraRig({ roomId, focusPcId, onSettled }: {
             return;
         }
 
-        const fromRoom = roomAt(camera.position.x, camera.position.z) ?? destination;
-        const from = ROOM_ORDER.indexOf(fromRoom);
-        const to = ROOM_ORDER.indexOf(destination);
         const eyeY = FLOOR_Y + 1.5;
         const points = [camera.position.clone()];
+        const doorInside = new THREE.Vector3(FRONT_DOOR.x, eyeY, ROOM_BOUNDS.jenny.maxZ - 1.2);
+        const doorGap = new THREE.Vector3(FRONT_DOOR.x, eyeY, FRONT_DOOR.z);
+        const doorOutside = new THREE.Vector3(FRONT_DOOR.x, eyeY, ROOM_BOUNDS.jenny.maxZ + 1.6);
+        const cameraOutside = !roomAt(camera.position.x, camera.position.z) && !insideHouse(camera.position.x, camera.position.z);
+        // Coming in from outside: through the front door into Jenny's room first.
+        if (cameraOutside) points.push(doorOutside, doorGap, doorInside);
+        const fromRoom = cameraOutside ? "jenny" : roomAt(camera.position.x, camera.position.z) ?? destination;
+        const toRoom = outside ? "jenny" : destination;
+        const from = ROOM_ORDER.indexOf(fromRoom);
+        const to = ROOM_ORDER.indexOf(toRoom);
         const direction = Math.sign(to - from);
         // Walk through each doorway between the two rooms, entering head-on.
         for (let index = from; index !== to; index += direction) {
@@ -249,8 +346,10 @@ function CameraRig({ roomId, focusPcId, onSettled }: {
             points.push(new THREE.Vector3(doorway.x - direction * 0.9, eyeY, DOORWAY_Z));
             points.push(new THREE.Vector3(doorway.x + direction * 0.9, eyeY, DOORWAY_Z));
         }
+        // Going out: through Jenny's front door.
+        if (outside) points.push(doorInside, doorGap, doorOutside);
         points.push(view.position);
-        const doors = Math.abs(to - from);
+        const doors = Math.abs(to - from) + (outside || cameraOutside ? 1 : 0);
         flight.current = {
             curve: new THREE.CatmullRomCurve3(points, false, "centripetal"),
             from: orbit?.target.clone() ?? view.target.clone(),
@@ -283,8 +382,8 @@ function CameraRig({ roomId, focusPcId, onSettled }: {
                 flight.current = null;
                 if (orbit) {
                     orbit.target.copy(current.to);
-                    // Stay put in front of a PC; orbit freely in a room.
-                    orbit.enabled = !current.key.startsWith("pc:");
+                    // Stay put in front of a PC or while walking outside; orbit freely in a room.
+                    orbit.enabled = current.key.startsWith("room:");
                     orbit.update();
                 }
                 onSettled(current.key);
@@ -292,6 +391,7 @@ function CameraRig({ roomId, focusPcId, onSettled }: {
             return;
         }
 
+        if (outside) return;
         // Keep the orbiting camera inside the current room.
         const bounds = ROOM_BOUNDS[destination];
         const margin = 0.25;
@@ -458,14 +558,14 @@ async function prepareForRender(gl: THREE.WebGLRenderer, object: THREE.Object3D,
 }
 
 /** Builds a room as a transition, so React yields to typing while creating it. */
-function DeferredRoom({ onReady, children }: { onReady: () => void; children: ReactNode }) {
+function DeferredRoom({ onReady, hidden, children }: { onReady: () => void; hidden: boolean; children: ReactNode }) {
     const [show, setShow] = useState(false);
     const room = useRef<THREE.Group>(null);
     useEffect(() => startTransition(() => setShow(true)), []);
     if (!show) return null;
     return (
         <>
-            <group ref={room}>{children}</group>
+            <group ref={room} visible={!hidden}>{children}</group>
             <RoomWarmUp room={room} onReady={onReady} />
         </>
     );
@@ -514,6 +614,7 @@ function Character({
     expression,
     onReady,
     onSelect,
+    hidden,
 }: {
     character: GroupMember;
     isSpeaking: boolean;
@@ -521,6 +622,8 @@ function Character({
     expression: string;
     onReady: () => void;
     onSelect: (id: CharacterId) => void;
+    /** Out of sight while the user walks outside: not drawn, not animated. */
+    hidden: boolean;
 }) {
     const group = useRef<THREE.Group>(null);
     const [vrm, setVrm] = useState<VRM | null>(null);
@@ -607,7 +710,7 @@ function Character({
     const settled = useRef(false);
 
     useFrame((_, delta) => {
-        if (!vrm || !group.current) return;
+        if (!vrm || !group.current || hidden) return;
         const time = performance.now() / 1000;
 
         // Face the user when they are in this room; otherwise face the usual viewpoint.
@@ -659,7 +762,7 @@ function Character({
 
     if (!vrm) return null;
     return (
-        <group position={position}>
+        <group position={position} visible={!hidden}>
             <group ref={group}>
                 <primitive object={vrm.scene} scale={scale} />
             </group>

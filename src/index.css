@@ -480,6 +480,36 @@ button:focus-visible {
 .monitorGrid button:hover .monitorVideoTitle { color: #ffb3b5; }
 .monitorGrid button:hover .monitorThumb { outline: 2px solid var(--member-color); }
 
+.outdoorHint {
+    position: fixed;
+    left: 50%;
+    top: 112px;
+    z-index: 25;
+    margin: 0;
+    padding: 8px 14px;
+    transform: translateX(-50%);
+    border-radius: 999px;
+    color: white;
+    background: rgba(20, 23, 37, 0.8);
+    font-size: 13px;
+    pointer-events: none;
+}
+.outdoorJoystick {
+    position: fixed;
+    right: 24px;
+    bottom: 190px;
+    z-index: 25;
+    display: grid;
+    place-items: center;
+    width: 104px;
+    height: 104px;
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    border-radius: 50%;
+    background: rgba(20, 23, 37, 0.35);
+    touch-action: none;
+}
+.outdoorJoystick div { width: 44px; height: 44px; border-radius: 50%; background: rgba(255, 255, 255, 0.75); }
+
 /* Top-left corner is free on every layout; the PC screen fills the middle. */
 .pcBackButton {
     position: fixed;

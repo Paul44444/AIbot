@@ -6,6 +6,7 @@ import {
     DOORWAY_HEIGHT,
     DOORWAY_WIDTH,
     FLOOR_Y,
+    FRONT_DOOR,
     HEIGHT,
     ROOM_BOUNDS,
     WALL_GAP,
@@ -964,6 +965,10 @@ export default function CozyRoom() {
     ], []);
     const westHoles = useMemo(() => [doorwayHole(JENNY, "west")], []);
     const eastHoles = useMemo(() => [doorwayHole(JENNY, "east")], []);
+    // The front door outside; south wall-local x runs opposite to world x.
+    const southHoles = useMemo<Hole[]>(() => [
+        { kind: "doorway", x: -(FRONT_DOOR.x - center(JENNY).x), y: 0, w: DOORWAY_WIDTH, h: DOORWAY_HEIGHT },
+    ], []);
 
     return (
         <Room
@@ -1005,7 +1010,7 @@ export default function CozyRoom() {
                     <Plant position={[2.6, 0, 0.3]} scale={1.8} seed={73} />
                 </>
             ) }}
-            south={{ children: (
+            south={{ holes: southHoles, children: (
                 <>
                     <Bookshelf position={[-1.2, 0, 0.17]} />
                     <Painting position={[0.6, 1.5, 0.02]} size={[0.8, 0.55]} texture={paintings[1]} />
