@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
@@ -29,10 +29,12 @@ export default function SceneView({ isSpeaking, expression, avatarUrl, onProgres
     }, [avatarProgress, onProgress]);
 
     useEffect(() => {
-        if (!roomReady || readyAvatar !== avatarUrl) return;
+        if (roomReady && readyAvatar === avatarUrl) onProgress(1);
+    }, [roomReady, readyAvatar, avatarUrl, onProgress]);
 
-        onProgress(1);
-        if (revealed.current) return;
+    // Reveal the room as soon as it can render; the avatar joins whenever it is ready.
+    useEffect(() => {
+        if (!roomReady || revealed.current) return;
         let revealTimer = 0;
         let secondFrame = 0;
         const firstFrame = requestAnimationFrame(() => {
@@ -49,7 +51,7 @@ export default function SceneView({ isSpeaking, expression, avatarUrl, onProgres
             cancelAnimationFrame(firstFrame);
             cancelAnimationFrame(secondFrame);
         };
-    }, [roomReady, readyAvatar, avatarUrl, onProgress]);
+    }, [roomReady]);
 
     return (
         <div
@@ -62,9 +64,11 @@ export default function SceneView({ isSpeaking, expression, avatarUrl, onProgres
                 className="backgroundCanvas1"
                 dpr={[1, 1.25]}
                 camera={{ position: [0.5, -0.3, 0.5] }}
+                // Nothing is drawn until shaders and textures are prepared without blocking.
+                frameloop={roomReady ? "always" : "never"}
             >
                 <ambientLight intensity={1.4} />
-                <CozyRoom onReady={handleRoomReady} />
+                <DeferredRoom onReady={handleRoomReady} />
                 <Character
                     isSpeaking={isSpeaking}
                     expression={expression}
@@ -81,6 +85,75 @@ export default function SceneView({ isSpeaking, expression, avatarUrl, onProgres
             </Canvas>
         </div>
     );
+}
+
+const nextIdleSlot = () => new Promise<void>((resolve) => {
+    if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(() => resolve(), { timeout: 120 });
+    else requestAnimationFrame(() => resolve());
+});
+
+/**
+ * Compiles shaders in parallel (KHR_parallel_shader_compile) and uploads
+ * textures one per idle slot, so the first frame that draws `object` does not
+ * stall the main thread and keep the chat UI from responding.
+ */
+async function prepareForRender(gl: THREE.WebGLRenderer, object: THREE.Object3D, camera: THREE.Camera, scene: THREE.Scene) {
+    await gl.compileAsync(object, camera, scene);
+
+    const materials = new Set<THREE.Material>();
+    const textures = new Set<THREE.Texture>();
+    object.traverse((child) => {
+        if (!child.visible) return;
+        const childMaterials = (child as THREE.Mesh).material;
+        for (const material of Array.isArray(childMaterials) ? childMaterials : childMaterials ? [childMaterials] : []) {
+            materials.add(material);
+            for (const value of Object.values(material)) if (value instanceof THREE.Texture) textures.add(value);
+            const uniforms = (material as THREE.ShaderMaterial).uniforms ?? {};
+            for (const uniform of Object.values(uniforms)) if (uniform?.value instanceof THREE.Texture) textures.add(uniform.value);
+        }
+    });
+    // A program looks up its uniform locations on first use; do that one program per slot.
+    const programs = new Set<{ getUniforms: () => unknown; getAttributes: () => unknown }>();
+    for (const material of materials) {
+        const program = (gl.properties.get(material) as { currentProgram?: { getUniforms: () => unknown; getAttributes: () => unknown } }).currentProgram;
+        if (program) programs.add(program);
+    }
+    for (const program of programs) {
+        await nextIdleSlot();
+        program.getUniforms();
+        program.getAttributes();
+    }
+    for (const texture of textures) {
+        await nextIdleSlot();
+        gl.initTexture(texture);
+    }
+}
+
+/** Builds the room as a transition, so React yields to typing while creating it. */
+function DeferredRoom({ onReady }: { onReady: () => void }) {
+    const [show, setShow] = useState(false);
+    useEffect(() => startTransition(() => setShow(true)), []);
+    if (!show) return null;
+    return (
+        <>
+            <CozyRoom />
+            <RoomWarmUp onReady={onReady} />
+        </>
+    );
+}
+
+function RoomWarmUp({ onReady }: { onReady: () => void }) {
+    const { gl, scene, camera } = useThree();
+
+    useEffect(() => {
+        let cancelled = false;
+        void prepareForRender(gl, scene, camera, scene)
+            .catch((error) => console.error("Room warm-up failed:", error))
+            .then(() => { if (!cancelled) onReady(); });
+        return () => { cancelled = true; };
+    }, [gl, scene, camera, onReady]);
+
+    return null;
 }
 
 let idleAnimation: Promise<GLTF> | null = null;
@@ -111,7 +184,7 @@ function Character({
     const pressedKeysRef = useRef(new Set<string>());
     const movingRef = useRef(false);
     const movementVectorRef = useRef(new THREE.Vector2());
-    const { size } = useThree();
+    const { size, gl, camera, scene } = useThree();
     // The previous avatar stays visible while the next one loads, so pose it by its own URL.
     const shownAvatarUrl: string = vrm?.scene.userData.loadedAvatarUrl ?? avatarUrl;
     const isJenny = shownAvatarUrl.endsWith("/jenny.vrm");
@@ -166,6 +239,17 @@ function Character({
             const loadedVrm = gltf.userData.vrm as VRM;
             if (cancelled) return;
             loadedVrm.scene.userData.loadedAvatarUrl = avatarUrl;
+            // The avatar is always on screen; culling it only makes three.js skin
+            // every vertex on the CPU to compute bounding spheres.
+            loadedVrm.scene.traverse((object) => {
+                object.frustumCulled = false;
+                // Depth sorting would otherwise compute the same skinned bounds; the bind pose is close enough.
+                const skinned = object as THREE.SkinnedMesh;
+                if (skinned.isSkinnedMesh) {
+                    skinned.geometry.computeBoundingSphere();
+                    skinned.boundingSphere = skinned.geometry.boundingSphere!.clone();
+                }
+            });
 
             // Show the avatar only once it stands in its idle pose, not in a T-pose.
             let mixer: THREE.AnimationMixer | null = null;
@@ -184,6 +268,12 @@ function Character({
                 console.error("Idle animation failed:", error);
             }
             if (cancelled) return;
+            try {
+                await prepareForRender(gl, loadedVrm.scene, camera, scene);
+            } catch (error) {
+                console.error("Avatar warm-up failed:", error);
+            }
+            if (cancelled) return;
 
             mixerRef.current?.stopAllAction();
             mixerRef.current = mixer;
@@ -198,6 +288,8 @@ function Character({
         return () => {
             cancelled = true;
         };
+        // gl, camera and scene are stable for the canvas' lifetime.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [avatarUrl, onProgress]);
 
     useFrame((_, delta) => {

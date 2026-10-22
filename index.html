@@ -5,7 +5,7 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>aibot1</title>
-    <link rel="preload" as="image" href="/images/jenny-room-preview.webp" fetchpriority="high" />
+    <link rel="preload" as="image" href="/images/room-preview.webp" fetchpriority="high" />
     <link rel="prefetch" as="fetch" href="/model/jenny.vrm" crossorigin="anonymous" />
     <link rel="prefetch" as="fetch" href="/animations/idle.vrma" crossorigin="anonymous" />
     <style>
@@ -20,12 +20,12 @@
         opacity: 1;
         transition: opacity 900ms ease, visibility 0s linear 900ms;
       }
-      /* A 338-byte blurred still is part of the HTML, so a background shows instantly. */
+      /* A 308-byte blurred still is part of the HTML, so a background shows instantly. */
       .sceneAtmosphere::before {
         content: "";
         position: absolute;
         inset: -40px;
-        background: url("data:image/webp;base64,UklGRkoBAABXRUJQVlA4ID4BAABQCACdASowABsAPt1gqU+opSOiKrgKARAbiWgAsR7CJJvSGZNqH5GtYt4Nh+JOiP9dhNfk9zpf5ExePgZ0moogMzmcdtotQHcLYQAA/ucoQYlf3a2YEf1aKHon4i9/8JWettvG+2//e/hh2TsQfrzPnktvrInH/pqVtMM/BOPwupODY9MiLPAOMIru4CNtuQMxgXdtl/p/TY5yRvRfDUI+J5hIZQwRpV8rzqdvcRzxC7WOMZgIu0zBaYwZ6PQRtxegDHUg42pb0rCCf/OWL+MtFee5jpJpdyLCWQRhVw3CFbNxR0oowcsU8fuegkiqzYK7FGLsjl0vp1Eo9Qw+MA2r8FKBU/QqR3wzNPtSHefU4WoNa7vWMeinmrOMyh/hWzsyWOF598pTweHyTkMiSc4HwbIWSyTjkJ72zeGAAAA=") center / cover;
+        background: url("data:image/webp;base64,UklGRiwBAABXRUJQVlA4ICABAAAQCACdASowABsAPt1apU6opKMiMBVaqRAbiWYAp0d1cYbM28T9jAt5ghGXo0C7/sx+v5WsAzq1eSEzSliUAE3boPX99r69uSsAAP7qgmopZTH+dN4gT4amGBpUd7DXIhLHy5MXZ1wvy3CTj/gH/X27PSBDn3Zn7uR95wzEnZV7qut487aA07s84zGHRDJR4vAiqFgkNf+QowsbAqIT1Gi6TGIq0Q5UZa7vTm5xoK9iOp95kQcGErFz3SjUcFNxhKxpi1ArA1rxJWHuO8J2rseC2R9kiuqWs0C5oRyR5yD2+KMgJmkbuAmJPOyljFTyXlxXYKPHuhnvvZyxfBN/oB8sKK7Fle6yle8MnTzLYZExTACzFlYY0BhG/wy0meL0AAA=") center / cover;
         filter: blur(18px);
       }
       .sceneAtmosphere img {
@@ -117,7 +117,7 @@
   </head>
   <body>
     <div class="sceneAtmosphere" aria-hidden="true">
-      <img src="/images/jenny-room-preview.webp" alt="" fetchpriority="high" decoding="async" onload="this.classList.add('isLoaded')" />
+      <img src="/images/room-preview.webp" alt="" fetchpriority="high" decoding="async" onload="this.classList.add('isLoaded')" />
     </div>
     <div class="sceneLoading" data-progress="7" data-label="Preparing 3D room" role="status" aria-label="Preparing 3D room: 7%"><span></span></div>
     <div id="root"></div>

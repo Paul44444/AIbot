@@ -1,7 +1,8 @@
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { useFrame } from "@react-three/fiber";
 import { RoundedBox } from "@react-three/drei";
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 // The whole room is built from primitives and canvas textures generated at
 // runtime, so it costs no extra download and renders on the first frame.
@@ -507,7 +508,7 @@ function Dresser({ position, width = 0.95 }: { position: [number, number, number
     return (
         <group position={position}>
             <BlobShadow size={width + 0.5} opacity={0.6} />
-            <RoundedBox args={[width, height, depth]} radius={0.02} position={[0, height / 2, 0]}>
+            <RoundedBox smoothness={2} bevelSegments={1} args={[width, height, depth]} radius={0.02} position={[0, height / 2, 0]}>
                 <meshStandardMaterial color={COLORS.wood} roughness={0.65} />
             </RoundedBox>
             {[0.17, 0.42].map((y) =>
@@ -609,21 +610,21 @@ function Bed({ position }: { position: [number, number, number] }) {
                 <boxGeometry args={[width, 0.24, length]} />
                 <meshStandardMaterial color={COLORS.wood} roughness={0.65} />
             </mesh>
-            <RoundedBox args={[width + 0.06, 0.95, 0.08]} radius={0.03} position={[0, 0.48, -length / 2 + 0.04]}>
+            <RoundedBox smoothness={2} bevelSegments={1} args={[width + 0.06, 0.95, 0.08]} radius={0.03} position={[0, 0.48, -length / 2 + 0.04]}>
                 <meshStandardMaterial color={COLORS.wood} roughness={0.65} />
             </RoundedBox>
-            <RoundedBox args={[width - 0.06, 0.22, length - 0.08]} radius={0.06} position={[0, 0.38, 0.02]}>
+            <RoundedBox smoothness={2} bevelSegments={1} args={[width - 0.06, 0.22, length - 0.08]} radius={0.06} position={[0, 0.38, 0.02]}>
                 <meshStandardMaterial color={COLORS.sheet} roughness={0.95} />
             </RoundedBox>
-            <RoundedBox args={[width + 0.02, 0.09, length * 0.66]} radius={0.04} position={[0, 0.49, length * 0.17 + 0.02]}>
+            <RoundedBox smoothness={2} bevelSegments={1} args={[width + 0.02, 0.09, length * 0.66]} radius={0.04} position={[0, 0.49, length * 0.17 + 0.02]}>
                 <meshStandardMaterial color={COLORS.blanket} roughness={1} />
             </RoundedBox>
             {[-0.38, 0.38].map((x) => (
-                <RoundedBox key={x} args={[0.66, 0.17, 0.42]} radius={0.08} position={[x, 0.58, -length / 2 + 0.34]} rotation={[0.25, 0, 0]}>
+                <RoundedBox smoothness={2} bevelSegments={1} key={x} args={[0.66, 0.17, 0.42]} radius={0.08} position={[x, 0.58, -length / 2 + 0.34]} rotation={[0.25, 0, 0]}>
                     <meshStandardMaterial color={COLORS.pillow} roughness={1} />
                 </RoundedBox>
             ))}
-            <RoundedBox args={[0.34, 0.1, 0.3]} radius={0.05} position={[0.1, 0.58, 0.15]} rotation={[0, 0.5, 0.1]}>
+            <RoundedBox smoothness={2} bevelSegments={1} args={[0.34, 0.1, 0.3]} radius={0.05} position={[0.1, 0.58, 0.15]} rotation={[0, 0.5, 0.1]}>
                 <meshStandardMaterial color="#e8c879" roughness={1} />
             </RoundedBox>
         </group>
@@ -637,7 +638,7 @@ function Desk({ position }: { position: [number, number, number] }) {
     return (
         <group position={position}>
             <BlobShadow size={1.6} opacity={0.5} />
-            <RoundedBox args={[width, 0.04, depth]} radius={0.015} position={[0, height, 0]}>
+            <RoundedBox smoothness={2} bevelSegments={1} args={[width, 0.04, depth]} radius={0.015} position={[0, height, 0]}>
                 <meshStandardMaterial color={COLORS.wood} roughness={0.6} />
             </RoundedBox>
             {[[-1, -1], [-1, 1], [1, -1], [1, 1]].map(([sx, sz]) => (
@@ -662,10 +663,10 @@ function Desk({ position }: { position: [number, number, number] }) {
             <Plant position={[0.42, height + 0.02, -0.12]} scale={0.7} seed={21} />
             {/* Chair. */}
             <group position={[0, 0, 0.55]} rotation={[0, 0.25, 0]}>
-                <RoundedBox args={[0.44, 0.05, 0.42]} radius={0.02} position={[0, 0.46, 0]}>
+                <RoundedBox smoothness={2} bevelSegments={1} args={[0.44, 0.05, 0.42]} radius={0.02} position={[0, 0.46, 0]}>
                     <meshStandardMaterial color={COLORS.wood} roughness={0.6} />
                 </RoundedBox>
-                <RoundedBox args={[0.44, 0.4, 0.04]} radius={0.02} position={[0, 0.7, 0.2]}>
+                <RoundedBox smoothness={2} bevelSegments={1} args={[0.44, 0.4, 0.04]} radius={0.02} position={[0, 0.7, 0.2]}>
                     <meshStandardMaterial color={COLORS.wood} roughness={0.6} />
                 </RoundedBox>
                 {[[-1, -1], [-1, 1], [1, -1], [1, 1]].map(([sx, sz]) => (
@@ -715,10 +716,66 @@ function CeilingLamp({ position }: { position: [number, number, number] }) {
 function Rug({ position }: { position: [number, number, number] }) {
     const texture = useMemo(makeRugTexture, []);
     return (
-        <RoundedBox args={[2.8, 0.016, 2.0]} radius={0.007} position={position}>
+        <RoundedBox smoothness={2} bevelSegments={1} args={[2.8, 0.016, 2.0]} radius={0.007} position={position}>
             <meshStandardMaterial map={texture} roughness={1} />
         </RoundedBox>
     );
+}
+
+/**
+ * The room is ~400 small meshes, which would cost one draw call each per frame.
+ * Bake them into one mesh per distinct material and hide the originals; lights
+ * stay where they are.
+ */
+function mergeStaticMeshes(root: THREE.Object3D) {
+    root.updateWorldMatrix(true, true);
+    const batches = new Map<string, { material: THREE.Material; renderOrder: number; geometries: THREE.BufferGeometry[] }>();
+    const sources: THREE.Mesh[] = [];
+
+    root.traverse((object) => {
+        const mesh = object as THREE.Mesh;
+        if (!mesh.isMesh || Array.isArray(mesh.material) || !mesh.visible) return;
+        const material = mesh.material as THREE.MeshStandardMaterial;
+        const key = [
+            material.type, material.color?.getHexString(), material.emissive?.getHexString(), material.emissiveIntensity,
+            material.roughness, material.metalness, material.map?.uuid, material.side, material.transparent,
+            material.opacity, material.flatShading, material.toneMapped, material.depthWrite, mesh.renderOrder,
+        ].join("|");
+
+        const geometry = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
+        for (const name of Object.keys(geometry.attributes)) {
+            if (!["position", "normal", "uv"].includes(name)) geometry.deleteAttribute(name);
+        }
+        if (!geometry.attributes.normal) geometry.computeVertexNormals();
+        if (!geometry.attributes.uv) {
+            geometry.setAttribute("uv", new THREE.Float32BufferAttribute(new Float32Array(geometry.attributes.position.count * 2), 2));
+        }
+        geometry.applyMatrix4(mesh.matrixWorld);
+
+        const batch = batches.get(key) ?? { material, renderOrder: mesh.renderOrder, geometries: [] };
+        batch.geometries.push(geometry);
+        batches.set(key, batch);
+        sources.push(mesh);
+    });
+
+    const merged = new THREE.Group();
+    for (const { material, renderOrder, geometries } of batches.values()) {
+        const mesh = new THREE.Mesh(mergeGeometries(geometries), material);
+        geometries.forEach((geometry) => geometry.dispose());
+        mesh.renderOrder = renderOrder;
+        mesh.matrixAutoUpdate = false;
+        merged.add(mesh);
+    }
+    sources.forEach((mesh) => { mesh.visible = false; });
+    root.add(merged);
+    // Nothing in the room moves, so skip recomposing ~400 matrices every frame.
+    root.traverse((object) => { object.matrixAutoUpdate = false; });
+
+    return () => {
+        root.remove(merged);
+        merged.children.forEach((mesh) => (mesh as THREE.Mesh).geometry.dispose());
+        sources.forEach((mesh) => { mesh.visible = true; });
+    };
 }
 
 /** Keeps the orbiting camera inside the walls. */
@@ -732,7 +789,7 @@ function CameraBounds() {
     return null;
 }
 
-export default function CozyRoom({ onReady }: { onReady: () => void }) {
+export default function CozyRoom() {
     const floorTexture = useMemo(makeFloorTexture, []);
     const paintings = useMemo(() => [
         makePaintingTexture(5, ["#f2b8a2", "#9cc4e4", "#f5d48f", "#b6d7a8"]),
@@ -740,19 +797,18 @@ export default function CozyRoom({ onReady }: { onReady: () => void }) {
         makePaintingTexture(13, ["#9cc4e4", "#f6c1cf", "#f5d48f"]),
     ], []);
 
-    useEffect(() => {
-        const frame = requestAnimationFrame(onReady);
-        return () => cancelAnimationFrame(frame);
-    }, [onReady]);
-
     const northHoles = useMemo<Hole[]>(() => [
         { x: -1.0, y: 1.0, w: 1.25, h: 1.25 },
         { x: 1.8, y: 1.05, w: 1.35, h: 1.2 },
     ], []);
     const eastHoles = useMemo<Hole[]>(() => [{ x: -1.3, y: 1.0, w: 1.1, h: 1.25 }], []);
 
+    const rootRef = useRef<THREE.Group>(null);
+    // Layout effects run after the children are attached and before the warm-up compiles them.
+    useLayoutEffect(() => mergeStaticMeshes(rootRef.current!), []);
+
     return (
-        <group>
+        <group ref={rootRef}>
             <color attach="background" args={["#2a1d16"]} />
             <CameraBounds />
 
@@ -772,7 +828,7 @@ export default function CozyRoom({ onReady }: { onReady: () => void }) {
                 <FairyLights from={[0.85, 2.5]} to={[2.75, 2.5]} />
                 <group position={[0.75, 0, 0.25]}>
                     <BlobShadow size={0.8} opacity={0.5} />
-                    <RoundedBox args={[0.45, 0.5, 0.4]} radius={0.02} position={[0, 0.25, 0]}>
+                    <RoundedBox smoothness={2} bevelSegments={1} args={[0.45, 0.5, 0.4]} radius={0.02} position={[0, 0.25, 0]}>
                         <meshStandardMaterial color={COLORS.wood} roughness={0.65} />
                     </RoundedBox>
                     <Plant position={[0.05, 0.5, 0]} scale={0.8} seed={41} />
