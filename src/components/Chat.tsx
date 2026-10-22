@@ -1208,6 +1208,7 @@ ${topicGuidance}
                         addresseeId={addressee}
                         expression={currentExpression}
                         onProgress={updateSceneLoadingProgress}
+                        onNavigate={addressCharacter}
                     />
                 </Suspense>
             )}

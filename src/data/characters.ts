@@ -8,6 +8,8 @@ export type Character = {
     voice: string;
     avatarUrl: string;
     color: string;
+    /** Shown in the hover card in the 3D scene. */
+    tagline: string;
     /** One line for the director deciding who wants to jump in. */
     summary: string;
     personality: string;
@@ -21,6 +23,7 @@ export const CHARACTERS: Character[] = [
         voice: "marin",
         avatarUrl: "/model/jenny.vrm",
         color: "#f29bb5",
+        tagline: "Warm and balanced — keeps the conversation together.",
         summary: "warm, balanced host who keeps the conversation together and hands the floor back to the user",
         personality: `You are warm, curious and balanced, the natural host of the group.
 You give sensible, kind answers and make sure the user feels heard.
@@ -33,6 +36,7 @@ You sometimes gently moderate: you summarize, invite the user's opinion, or teas
         voice: "ash",
         avatarUrl: "/model/human11.vrm",
         color: "#ffb35c",
+        tagline: "Cheeky and playful — always has a sneaky shortcut.",
         summary: "cheeky, playful trickster who suggests shortcuts and slightly naughty options and loves to provoke the others",
         personality: `You are the cheeky trickster, the little devil on the user's shoulder.
 You suggest shortcuts, loopholes and the slightly naughty option, and you love provoking Smyth and Jenny.
@@ -46,6 +50,7 @@ Nothing harmful or illegal; your mischief is playful.`,
         voice: "cedar",
         avatarUrl: "/model/smyth.vrm",
         color: "#8fc1ff",
+        tagline: "Calm and precise — brings the evidence.",
         summary: "calm, precise scientist who brings evidence and nuance and gently corrects exaggerations",
         personality: `You are a calm, precise scientist with a dry sense of humor.
 You bring evidence, numbers and nuance, and gently correct exaggerations, especially Bob's.

@@ -1,6 +1,6 @@
-import { startTransition, useCallback, useEffect, useRef, useState } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
+import { Html, OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { GLTFLoader, type GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
@@ -9,49 +9,65 @@ import {
     VRMAnimationLoaderPlugin,
     createVRMAnimationClip,
 } from "@pixiv/three-vrm-animation";
-import CozyRoom, { BlobShadow } from "./CozyRoom";
-import { CHARACTERS, type Character as GroupMember, type CharacterId } from "../data/characters";
+import CozyRoom, { BlobShadow, JENNY_LIGHTS } from "./CozyRoom";
+import BobRoom, { BOB_LIGHTS } from "./BobRoom";
+import SmythRoom, { SMYTH_LIGHTS } from "./SmythRoom";
+import {
+    DOORWAYS,
+    DOORWAY_HEIGHT,
+    DOORWAY_WIDTH,
+    DOORWAY_Z,
+    FLOOR_Y,
+    HEIGHT,
+    ROOM_BOUNDS,
+    ROOM_ORDER,
+    SEATS,
+    roomAt,
+} from "./roomLayout";
+import { CHARACTER_BY_ID, type Character as GroupMember, type CharacterId } from "../data/characters";
 
 type SceneViewProps = {
     speakingId: CharacterId | null;
     addresseeId: CharacterId;
     expression: string;
     onProgress: (progress: number) => void;
+    /** The user clicked a character or a doorway leading to their room. */
+    onNavigate: (id: CharacterId) => void;
 };
 
-// The group stands in a loose semicircle facing the default camera.
-const GROUP_CENTER = new THREE.Vector3(0, -2, 0);
 const TOWARD_CAMERA = new THREE.Vector3(1, 0, 1).normalize();
 const SCREEN_RIGHT = new THREE.Vector3(1, 0, -1).normalize();
-const SEATS: Record<CharacterId, { side: number; forward: number }> = {
-    bob: { side: -0.82, forward: 0.25 },
-    jenny: { side: 0, forward: 0 },
-    smyth: { side: 0.82, forward: 0.25 },
+
+const ROOMS: Record<CharacterId, () => ReactNode> = {
+    jenny: () => <CozyRoom />,
+    bob: () => <BobRoom />,
+    smyth: () => <SmythRoom />,
 };
 
-function seatPosition(id: CharacterId) {
-    const seat = SEATS[id];
-    return GROUP_CENTER.clone()
-        .addScaledVector(SCREEN_RIGHT, seat.side)
-        .addScaledVector(TOWARD_CAMERA, seat.forward);
+// Rooms and residents load one after another, Jenny's first, so the work never
+// piles up on the main thread and the starting room is ready soonest.
+const LOAD_STEPS = ROOM_ORDER
+    .slice()
+    .sort((a, b) => (a === "jenny" ? -1 : b === "jenny" ? 1 : 0))
+    .flatMap((id) => [{ kind: "room" as const, id }, { kind: "avatar" as const, id }]);
+
+function stepIndex(kind: "room" | "avatar", id: CharacterId) {
+    return LOAD_STEPS.findIndex((step) => step.kind === kind && step.id === id);
 }
 
-export default function SceneView({ speakingId, addresseeId, expression, onProgress }: SceneViewProps) {
-    const [roomReady, setRoomReady] = useState(false);
-    const handleRoomReady = useCallback(() => setRoomReady(true), []);
-    // Avatars load one after another so their setup never piles up on the main thread.
-    const [loadedIds, setLoadedIds] = useState<CharacterId[]>([]);
-    const handleAvatarReady = useCallback((id: CharacterId) => {
-        setLoadedIds((previous) => previous.includes(id) ? previous : [...previous, id]);
+export default function SceneView({ speakingId, addresseeId, expression, onProgress, onNavigate }: SceneViewProps) {
+    const [step, setStep] = useState(0);
+    const finishStep = useCallback((index: number) => {
+        setStep((current) => current === index ? current + 1 : current);
     }, []);
-    const heads = useRef(new Map<CharacterId, THREE.Object3D>());
+    const roomReady = step > stepIndex("room", "jenny");
     const revealed = useRef(false);
 
     useEffect(() => {
-        onProgress(roomReady ? 0.4 + (loadedIds.length / CHARACTERS.length) * 0.6 : 0.3);
-    }, [roomReady, loadedIds, onProgress]);
+        onProgress(0.3 + (step / LOAD_STEPS.length) * 0.7);
+    }, [step, onProgress]);
 
-    // Reveal the room as soon as it can render; the avatars join whenever they are ready.
+    // Reveal Jenny's room as soon as it can render; everything else joins later.
     useEffect(() => {
         if (!roomReady || revealed.current) return;
         let revealTimer = 0;
@@ -73,70 +89,214 @@ export default function SceneView({ speakingId, addresseeId, expression, onProgr
     }, [roomReady]);
 
     return (
-        <div className="sceneView" aria-label="3D room with the group">
+        <div className="sceneView" aria-label="3D rooms of the group">
             <Canvas
                 className="backgroundCanvas1"
                 dpr={[1, 1.25]}
-                camera={{ position: [1.5, -0.5, 1.5] }}
+                camera={{ position: [1.5, -0.5, 1.5], fov: 40 }}
                 // Nothing is drawn until shaders and textures are prepared without blocking.
                 frameloop={roomReady ? "always" : "never"}
             >
+                <color attach="background" args={["#2a1d16"]} />
                 <ambientLight intensity={1.4} />
-                <DeferredRoom onReady={handleRoomReady} />
-                {CHARACTERS.map((character, index) => index <= loadedIds.length && (
-                    <Character
-                        key={character.id}
-                        character={character}
-                        isSpeaking={speakingId === character.id}
-                        isAddressed={addresseeId === character.id}
-                        speakingId={speakingId}
-                        expression={speakingId === character.id ? expression : "relaxed"}
-                        heads={heads.current}
-                        onReady={handleAvatarReady}
+                <hemisphereLight args={["#ffe9d2", "#c99a74", 0.6]} />
+                <directionalLight position={[2, 3, -5]} color="#ffeedd" intensity={1.1} />
+                {/* Every room's lamps exist from the start: adding lights later would recompile every material. */}
+                {[...JENNY_LIGHTS, ...BOB_LIGHTS, ...SMYTH_LIGHTS].map((light, index) => (
+                    <pointLight
+                        key={index}
+                        position={light.position as unknown as [number, number, number]}
+                        color={light.color}
+                        intensity={light.intensity}
+                        distance={light.distance}
+                        decay={light.decay}
                     />
                 ))}
+
+                {LOAD_STEPS.map((loadStep, index) => {
+                    if (index > step) return null;
+                    if (loadStep.kind === "room") {
+                        return (
+                            <DeferredRoom key={`room-${loadStep.id}`} onReady={() => finishStep(index)}>
+                                {ROOMS[loadStep.id]()}
+                            </DeferredRoom>
+                        );
+                    }
+                    return (
+                        <Character
+                            key={`avatar-${loadStep.id}`}
+                            character={CHARACTER_BY_ID[loadStep.id]}
+                            isSpeaking={speakingId === loadStep.id}
+                            isAddressed={addresseeId === loadStep.id}
+                            expression={speakingId === loadStep.id ? expression : "relaxed"}
+                            onReady={() => finishStep(index)}
+                            onSelect={onNavigate}
+                        />
+                    );
+                })}
+
+                {DOORWAYS.map((doorway) => (
+                    <DoorwayHotspot key={doorway.x} doorway={doorway} onNavigate={onNavigate} />
+                ))}
                 <OrbitControls makeDefault enablePan enableZoom enableRotate />
-                <CameraRig />
+                <CameraRig roomId={addresseeId} />
             </Canvas>
         </div>
     );
 }
 
-/** Frames the whole group for the current screen shape; the user can still orbit afterwards. */
-function CameraRig() {
+const easeInOut = (t: number) => t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+
+/** The camera's resting view of a character, framed for the current screen. */
+function viewOf(id: CharacterId, width: number, height: number) {
+    const aspect = width / height;
+    const [x, z] = SEATS[id];
+    const target = new THREE.Vector3(x, FLOOR_Y + 1.35, z);
+    // On wide screens the transcript covers the left quarter; on phones the top half.
+    if (width >= 900) target.addScaledVector(SCREEN_RIGHT, -0.36);
+    if (aspect < 1) target.y += 0.6;
+    const position = target.clone().addScaledVector(TOWARD_CAMERA, aspect < 1 ? 2.3 : 2.0).add(new THREE.Vector3(0, 0.05, 0));
+    return { position, target, fov: aspect < 1 ? 62 : 40 };
+}
+
+/**
+ * Keeps the camera on the addressed character's room. Switching rooms flies the
+ * camera through the doorways in between; afterwards the user can orbit freely
+ * inside that room.
+ */
+function CameraRig({ roomId }: { roomId: CharacterId }) {
     const { camera, size, controls } = useThree();
+    const flight = useRef<{ curve: THREE.CatmullRomCurve3; from: THREE.Vector3; to: THREE.Vector3; start: number; duration: number } | null>(null);
+    const shownRoom = useRef<CharacterId | null>(null);
+    const lookTarget = useRef(new THREE.Vector3());
 
     useEffect(() => {
         const perspective = camera as THREE.PerspectiveCamera;
-        const aspect = size.width / size.height;
-        // A longer lens frames the group waist-up; portrait screens need a wider one.
-        perspective.fov = aspect < 1 ? 62 : 40;
+        const view = viewOf(roomId, size.width, size.height);
+        perspective.fov = view.fov;
         perspective.updateProjectionMatrix();
-        const halfWidth = Math.tan(THREE.MathUtils.degToRad(perspective.fov / 2)) * aspect;
-        // Keep about 3.8 m of the group in view, as far as the room allows.
-        const distance = THREE.MathUtils.clamp(1.9 / halfWidth, 1.6, 4.2);
-        const target = GROUP_CENTER.clone().add(new THREE.Vector3(0, 1.35, 0));
-        // On wide screens the transcript covers the left quarter; shift the group right.
-        if (size.width >= 900) target.addScaledVector(SCREEN_RIGHT, -0.42);
-        // On phones the transcript covers the upper half; aim higher so the group sits below it.
-        if (aspect < 1) target.y += 0.65;
-        camera.position.copy(target).addScaledVector(TOWARD_CAMERA, distance).add(new THREE.Vector3(0, 0.1, 0));
         const orbit = controls as OrbitControlsImpl | null;
-        if (orbit) {
-            orbit.target.copy(target);
-            orbit.update();
-        } else {
-            camera.lookAt(target);
+
+        if (shownRoom.current === null || shownRoom.current === roomId) {
+            // First frame or a resize: just frame the character.
+            camera.position.copy(view.position);
+            orbit?.target.copy(view.target);
+            if (orbit) orbit.update(); else camera.lookAt(view.target);
+            shownRoom.current = roomId;
+            return;
         }
-    }, [camera, size.width, size.height, controls]);
+
+        const fromRoom = roomAt(camera.position.x, camera.position.z) ?? shownRoom.current;
+        const from = ROOM_ORDER.indexOf(fromRoom);
+        const to = ROOM_ORDER.indexOf(roomId);
+        const eyeY = FLOOR_Y + 1.5;
+        const points = [camera.position.clone()];
+        const direction = Math.sign(to - from);
+        // Walk through each doorway between the two rooms, entering head-on.
+        for (let index = from; index !== to; index += direction) {
+            const doorway = DOORWAYS[Math.min(index, index + direction)];
+            points.push(new THREE.Vector3(doorway.x - direction * 0.9, eyeY, DOORWAY_Z));
+            points.push(new THREE.Vector3(doorway.x + direction * 0.9, eyeY, DOORWAY_Z));
+        }
+        points.push(view.position);
+        const doors = Math.abs(to - from);
+        flight.current = {
+            curve: new THREE.CatmullRomCurve3(points, false, "centripetal"),
+            from: orbit?.target.clone() ?? view.target.clone(),
+            to: view.target,
+            start: performance.now(),
+            duration: 700 + 900 * doors,
+        };
+        if (orbit) orbit.enabled = false;
+        shownRoom.current = roomId;
+    }, [camera, size.width, size.height, controls, roomId]);
+
+    useFrame(() => {
+        const orbit = controls as OrbitControlsImpl | null;
+        const current = flight.current;
+        if (current) {
+            const t = Math.min(1, (performance.now() - current.start) / current.duration);
+            const eased = easeInOut(t);
+            camera.position.copy(current.curve.getPointAt(eased));
+            // Look along the path, starting from the old focus and ending on the character.
+            const ahead = current.curve.getPointAt(Math.min(1, eased + 0.12));
+            ahead.y = FLOOR_Y + 1.4;
+            lookTarget.current.lerpVectors(current.from, ahead, THREE.MathUtils.smoothstep(eased, 0, 0.25));
+            lookTarget.current.lerp(current.to, THREE.MathUtils.smoothstep(eased, 0.55, 1));
+            camera.lookAt(lookTarget.current);
+            orbit?.target.copy(lookTarget.current);
+            if (t >= 1) {
+                flight.current = null;
+                if (orbit) {
+                    orbit.target.copy(current.to);
+                    orbit.enabled = true;
+                    orbit.update();
+                }
+            }
+            return;
+        }
+
+        // Keep the orbiting camera inside the current room.
+        const bounds = ROOM_BOUNDS[roomId];
+        const margin = 0.25;
+        camera.position.x = THREE.MathUtils.clamp(camera.position.x, bounds.minX + margin, bounds.maxX - margin);
+        camera.position.y = THREE.MathUtils.clamp(camera.position.y, FLOOR_Y + 0.2, FLOOR_Y + HEIGHT - 0.2);
+        camera.position.z = THREE.MathUtils.clamp(camera.position.z, bounds.minZ + margin, bounds.maxZ - margin);
+    });
 
     return null;
 }
 
-const nextIdleSlot = () => new Promise<void>((resolve) => {
-    if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(() => resolve(), { timeout: 120 });
-    else requestAnimationFrame(() => resolve());
+/** Ignore clicks that were really camera drags. */
+const isClick = (event: ThreeEvent<MouseEvent>) => event.delta < 6;
+
+function setCursor(pointer: boolean) {
+    document.body.style.cursor = pointer ? "pointer" : "";
+}
+
+/** Invisible plane in a doorway: hover shows where it leads, click goes there. */
+function DoorwayHotspot({ doorway, onNavigate }: { doorway: (typeof DOORWAYS)[number]; onNavigate: (id: CharacterId) => void }) {
+    const { camera } = useThree();
+    const [hovered, setHovered] = useState(false);
+    const destination = () => camera.position.x < doorway.x ? doorway.east : doorway.west;
+    const character = CHARACTER_BY_ID[hovered ? destination() : doorway.east];
+
+    return (
+        <mesh
+            position={[doorway.x, FLOOR_Y + DOORWAY_HEIGHT / 2, DOORWAY_Z]}
+            rotation={[0, Math.PI / 2, 0]}
+            onPointerOver={(event) => { event.stopPropagation(); setHovered(true); setCursor(true); }}
+            onPointerOut={() => { setHovered(false); setCursor(false); }}
+            onClick={(event) => {
+                if (!isClick(event)) return;
+                event.stopPropagation();
+                onNavigate(destination());
+            }}
+        >
+            <planeGeometry args={[DOORWAY_WIDTH, DOORWAY_HEIGHT]} />
+            <meshBasicMaterial transparent opacity={0} depthWrite={false} side={THREE.DoubleSide} />
+            {hovered && (
+                <Html center position={[0, 0.4, 0]} pointerEvents="none" zIndexRange={[30, 0]}>
+                    <div className="sceneTooltip" style={{ "--member-color": character.color } as CSSProperties}>
+                        <strong>{character.name}'s room →</strong>
+                    </div>
+                </Html>
+            )}
+        </mesh>
+    );
+}
+
+// Yield to the browser between pieces of GPU work so input is handled in between.
+// Idle callbacks are too rare while the scene renders every frame.
+const yieldToBrowser = () => new Promise<void>((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => resolve();
+    channel.port2.postMessage(null);
 });
+
+// Shared across rooms and avatars, so work done once is never waited on again.
+const preparedPrograms = new WeakSet<object>();
+const preparedTextures = new WeakSet<THREE.Texture>();
 
 /**
  * Compiles shaders in parallel (KHR_parallel_shader_compile) and uploads
@@ -165,39 +325,46 @@ async function prepareForRender(gl: THREE.WebGLRenderer, object: THREE.Object3D,
         if (program) programs.add(program);
     }
     for (const program of programs) {
-        await nextIdleSlot();
+        if (preparedPrograms.has(program)) continue;
+        preparedPrograms.add(program);
+        await yieldToBrowser();
         program.getUniforms();
         program.getAttributes();
     }
     for (const texture of textures) {
-        await nextIdleSlot();
+        if (preparedTextures.has(texture)) continue;
+        preparedTextures.add(texture);
+        await yieldToBrowser();
         gl.initTexture(texture);
     }
 }
 
-/** Builds the room as a transition, so React yields to typing while creating it. */
-function DeferredRoom({ onReady }: { onReady: () => void }) {
+/** Builds a room as a transition, so React yields to typing while creating it. */
+function DeferredRoom({ onReady, children }: { onReady: () => void; children: ReactNode }) {
     const [show, setShow] = useState(false);
+    const room = useRef<THREE.Group>(null);
     useEffect(() => startTransition(() => setShow(true)), []);
     if (!show) return null;
     return (
         <>
-            <CozyRoom />
-            <RoomWarmUp onReady={onReady} />
+            <group ref={room}>{children}</group>
+            <RoomWarmUp room={room} onReady={onReady} />
         </>
     );
 }
 
-function RoomWarmUp({ onReady }: { onReady: () => void }) {
+function RoomWarmUp({ room, onReady }: { room: RefObject<THREE.Group | null>; onReady: () => void }) {
     const { gl, scene, camera } = useThree();
 
     useEffect(() => {
         let cancelled = false;
-        void prepareForRender(gl, scene, camera, scene)
+        void prepareForRender(gl, room.current ?? scene, camera, scene)
             .catch((error) => console.error("Room warm-up failed:", error))
             .then(() => { if (!cancelled) onReady(); });
         return () => { cancelled = true; };
-    }, [gl, scene, camera, onReady]);
+        // Runs once per room; onReady identity changes with every render of the parent.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [gl, scene, camera, room]);
 
     return null;
 }
@@ -218,25 +385,26 @@ function Character({
     character,
     isSpeaking,
     isAddressed,
-    speakingId,
     expression,
-    heads,
     onReady,
+    onSelect,
 }: {
     character: GroupMember;
     isSpeaking: boolean;
     isAddressed: boolean;
-    speakingId: CharacterId | null;
     expression: string;
-    heads: Map<CharacterId, THREE.Object3D>;
-    onReady: (id: CharacterId) => void;
+    onReady: () => void;
+    onSelect: (id: CharacterId) => void;
 }) {
     const group = useRef<THREE.Group>(null);
     const [vrm, setVrm] = useState<VRM | null>(null);
+    const [hovered, setHovered] = useState(false);
     const mixerRef = useRef<THREE.AnimationMixer | null>(null);
     const { gl, camera, scene } = useThree();
-    const position = useRef(seatPosition(character.id)).current;
+    const position = useMemo(() => new THREE.Vector3(SEATS[character.id][0], FLOOR_Y, SEATS[character.id][1]), [character.id]);
     const scale = character.id === "jenny" ? 1.12 : 1;
+    const onReadyRef = useRef(onReady);
+    onReadyRef.current = onReady;
 
     useEffect(() => {
         let cancelled = false;
@@ -264,7 +432,7 @@ function Character({
                 const animation = (await loadIdleAnimation()).userData.vrmAnimations?.[0];
                 if (animation) {
                     mixer = new THREE.AnimationMixer(loadedVrm.scene);
-                    // Offset the clip so the group does not breathe in unison.
+                    // Offset the clip so the residents do not breathe in unison.
                     mixer.clipAction(createVRMAnimationClip(animation, loadedVrm)).play().time = Math.random() * 3;
                     mixer.update(0);
                     loadedVrm.update(0);
@@ -276,6 +444,15 @@ function Character({
                 console.error("Idle animation failed:", error);
             }
             if (cancelled) return;
+            // Stand every model on its seat by the hips of its idle pose: the animation's
+            // hip offset ends up mirrored on VRM 0.x models, which face the other way.
+            const hips = loadedVrm.humanoid.getRawBoneNode("hips");
+            if (hips) {
+                loadedVrm.scene.updateMatrixWorld(true);
+                const hipsPosition = hips.getWorldPosition(new THREE.Vector3());
+                loadedVrm.scene.position.x -= hipsPosition.x;
+                loadedVrm.scene.position.z -= hipsPosition.z;
+            }
             try {
                 await prepareForRender(gl, loadedVrm.scene, camera, scene);
             } catch (error) {
@@ -284,41 +461,32 @@ function Character({
             if (cancelled) return;
 
             mixerRef.current = mixer;
-            const head = loadedVrm.humanoid.getRawBoneNode("head");
-            if (head) heads.set(character.id, head);
             setVrm(loadedVrm);
-            onReady(character.id);
+            onReadyRef.current();
         }, undefined, (error) => {
             console.error(`Failed to load ${character.name}:`, error);
-            // Let the next avatar load anyway.
-            if (!cancelled) onReady(character.id);
+            // Let the next room load anyway.
+            if (!cancelled) onReadyRef.current();
         });
 
         return () => {
             cancelled = true;
-            heads.delete(character.id);
         };
         // gl, camera and scene are stable for the canvas' lifetime.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [character, heads, onReady]);
+    }, [character]);
 
     const lookTarget = useRef(new THREE.Vector3());
-    const speakerPosition = useRef(new THREE.Vector3());
+    const restingView = useMemo(() => viewOf(character.id, 1600, 900).position, [character.id]);
 
     useFrame((_, delta) => {
         if (!vrm || !group.current) return;
         const time = performance.now() / 1000;
 
-        // Listeners turn toward whoever is talking; otherwise everyone faces the user.
-        const speakerHead = speakingId && speakingId !== character.id ? heads.get(speakingId) : null;
-        const towardCamera = Math.atan2(camera.position.x - position.x, camera.position.z - position.z);
-        let yaw = towardCamera;
-        if (speakerHead) {
-            speakerHead.getWorldPosition(speakerPosition.current);
-            const towardSpeaker = Math.atan2(speakerPosition.current.x - position.x, speakerPosition.current.z - position.z);
-            const difference = Math.atan2(Math.sin(towardSpeaker - towardCamera), Math.cos(towardSpeaker - towardCamera));
-            yaw = towardCamera + difference * 0.55;
-        }
+        // Face the user when they are in this room; otherwise face the usual viewpoint.
+        const userHere = roomAt(camera.position.x, camera.position.z) === character.id;
+        const facing = userHere ? camera.position : restingView;
+        let yaw = Math.atan2(facing.x - position.x, facing.z - position.z);
         // VRM 0.x models face -Z, VRM 1.0 models face +Z.
         if (vrm.meta.metaVersion === "0") yaw += Math.PI;
         const current = group.current.rotation.y;
@@ -326,8 +494,8 @@ function Character({
         group.current.rotation.y = current + turn * (1 - Math.exp(-4 * delta));
 
         if (vrm.lookAt) {
-            if (speakerHead) lookTarget.current.copy(speakerPosition.current);
-            else camera.getWorldPosition(lookTarget.current);
+            if (userHere) camera.getWorldPosition(lookTarget.current);
+            else lookTarget.current.copy(restingView);
             vrm.lookAt.lookAt(lookTarget.current);
         }
 
@@ -346,11 +514,44 @@ function Character({
         vrm.update(delta);
     });
 
+    // Touch screens have no hover; a tap shows the card for a moment.
+    useEffect(() => {
+        if (!hovered) return;
+        const timer = window.setTimeout(() => setHovered(false), 4000);
+        return () => window.clearTimeout(timer);
+    }, [hovered]);
+
     if (!vrm) return null;
     return (
-        <group ref={group} position={position}>
-            <primitive object={vrm.scene} scale={scale} />
+        <group position={position}>
+            <group ref={group}>
+                <primitive object={vrm.scene} scale={scale} />
+            </group>
             <BlobShadow size={0.9} />
+            {/* Cheap hit area: raycasting the skinned meshes would skin every vertex on the CPU. */}
+            <mesh
+                position={[0, 0.9 * scale, 0]}
+                onPointerOver={(event) => { event.stopPropagation(); setHovered(true); setCursor(true); }}
+                onPointerOut={() => { setHovered(false); setCursor(false); }}
+                onClick={(event) => {
+                    if (!isClick(event)) return;
+                    event.stopPropagation();
+                    setHovered(true);
+                    onSelect(character.id);
+                }}
+            >
+                <cylinderGeometry args={[0.32, 0.32, 1.8 * scale, 10]} />
+                <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+            </mesh>
+            {hovered && (
+                <Html center position={[0, 1.55 * scale, 0]} pointerEvents="none" zIndexRange={[30, 0]}>
+                    <div className="sceneTooltip sceneTooltipBeside" style={{ "--member-color": character.color } as CSSProperties}>
+                        <strong>{character.name}</strong>
+                        <span>{character.role}</span>
+                        <small>{character.tagline}</small>
+                    </div>
+                </Html>
+            )}
         </group>
     );
 }

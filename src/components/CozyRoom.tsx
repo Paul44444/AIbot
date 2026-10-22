@@ -1,24 +1,25 @@
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
-import { useFrame } from "@react-three/fiber";
 import { RoundedBox } from "@react-three/drei";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import {
+    DOORWAY_HEIGHT,
+    DOORWAY_WIDTH,
+    FLOOR_Y,
+    HEIGHT,
+    ROOM_BOUNDS,
+    WALL_GAP,
+    center,
+    doorwayLocalX,
+    type Bounds,
+} from "./roomLayout";
 
 // The whole room is built from primitives and canvas textures generated at
 // runtime, so it costs no extra download and renders on the first frame.
 
-const FLOOR_Y = -2;
-const HEIGHT = 2.9;
-const MIN_X = -3.6;
-const MAX_X = 4.4;
-const MIN_Z = -4;
-const MAX_Z = 3.2;
-const WIDTH = MAX_X - MIN_X;
-const DEPTH = MAX_Z - MIN_Z;
-const CENTER_X = (MIN_X + MAX_X) / 2;
-const CENTER_Z = (MIN_Z + MAX_Z) / 2;
+export { FLOOR_Y, HEIGHT };
 
-const COLORS = {
+export const COLORS = {
     wall: "#eec4a0",
     ceiling: "#e9c9a6",
     trim: "#9b6338",
@@ -35,9 +36,17 @@ const COLORS = {
     lampGlow: "#ffbf7a",
 };
 
-type Hole = { x: number; y: number; w: number; h: number };
+export type Hole = {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    /** Doorways are open passages to the neighbouring room. */
+    kind?: "window" | "doorway";
+    curtain?: string;
+};
 
-function seededRandom(seed: number) {
+export function seededRandom(seed: number) {
     return () => {
         seed |= 0;
         seed = (seed + 0x6d2b79f5) | 0;
@@ -47,7 +56,7 @@ function seededRandom(seed: number) {
     };
 }
 
-function canvasTexture(width: number, height: number, draw: (ctx: CanvasRenderingContext2D) => void) {
+export function canvasTexture(width: number, height: number, draw: (ctx: CanvasRenderingContext2D) => void) {
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
@@ -58,12 +67,16 @@ function canvasTexture(width: number, height: number, draw: (ctx: CanvasRenderin
     return texture;
 }
 
-function makeFloorTexture() {
-    const random = seededRandom(7);
+export function makeFloorTexture(
+    width: number,
+    depth: number,
+    tones = ["#b8743f", "#c4824a", "#a9683a", "#bd7b45", "#b06f3d"],
+    seed = 7,
+) {
+    const random = seededRandom(seed);
     const texture = canvasTexture(512, 512, (ctx) => {
         const rows = 8;
         const rowHeight = 512 / rows;
-        const tones = ["#b8743f", "#c4824a", "#a9683a", "#bd7b45", "#b06f3d"];
         for (let row = 0; row < rows; row++) {
             let x = -random() * 200;
             while (x < 512) {
@@ -90,7 +103,7 @@ function makeFloorTexture() {
     });
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(WIDTH / 2.2, DEPTH / 2.2);
+    texture.repeat.set(width / 2.2, depth / 2.2);
     return texture;
 }
 
@@ -179,7 +192,7 @@ function makeRugTexture() {
     });
 }
 
-function makePaintingTexture(seed: number, palette: string[]) {
+export function makePaintingTexture(seed: number, palette: string[]) {
     const random = seededRandom(seed);
     return canvasTexture(256, 256, (ctx) => {
         ctx.fillStyle = "#fbf4ea";
@@ -218,18 +231,39 @@ export function BlobShadow({ size, opacity = 1, y = 0.004 }: { size: number; opa
     );
 }
 
+export type WallStyle = { color: string; trim: string; wainscot: boolean };
+
+const DEFAULT_WALL_STYLE: WallStyle = { color: COLORS.wall, trim: COLORS.trim, wainscot: true };
+
+/** Spans along the wall not interrupted by doorways, for baseboards and panelling. */
+function solidSpans(width: number, holes: Hole[]) {
+    const doors = holes.filter((hole) => hole.kind === "doorway")
+        .map((hole) => [hole.x - hole.w / 2, hole.x + hole.w / 2])
+        .sort((a, b) => a[0] - b[0]);
+    const spans: [number, number][] = [];
+    let start = -width / 2;
+    for (const [from, to] of doors) {
+        if (from > start) spans.push([start, from]);
+        start = Math.max(start, to);
+    }
+    if (start < width / 2) spans.push([start, width / 2]);
+    return spans;
+}
+
 /** A wall in local space: x along the wall, y up from the floor, +z into the room. */
 function Wall({
     width,
     position,
     rotationY,
     holes = [],
+    style = DEFAULT_WALL_STYLE,
     children,
 }: {
     width: number;
     position: [number, number, number];
     rotationY: number;
     holes?: Hole[];
+    style?: WallStyle;
     children?: ReactNode;
 }) {
     const geometry = useMemo(() => {
@@ -250,24 +284,65 @@ function Wall({
         }
         return new THREE.ShapeGeometry(shape);
     }, [width, holes]);
+    const spans = useMemo(() => solidSpans(width, holes), [width, holes]);
 
     return (
         <group position={position} rotation={[0, rotationY, 0]}>
             <mesh geometry={geometry}>
-                <meshStandardMaterial color={COLORS.wall} roughness={0.95} />
+                <meshStandardMaterial color={style.color} roughness={0.95} />
             </mesh>
-            <Wainscot width={width} />
-            {/* Baseboard and crown molding. */}
-            <mesh position={[0, 0.06, 0.012]}>
-                <boxGeometry args={[width, 0.12, 0.024]} />
-                <meshStandardMaterial color={COLORS.trim} roughness={0.7} />
-            </mesh>
+            {spans.map(([from, to]) => (
+                <group key={from} position={[(from + to) / 2, 0, 0]}>
+                    {style.wainscot && <Wainscot width={to - from} trim={style.trim} />}
+                    <mesh position={[0, 0.06, 0.012]}>
+                        <boxGeometry args={[to - from, 0.12, 0.024]} />
+                        <meshStandardMaterial color={style.trim} roughness={0.7} />
+                    </mesh>
+                </group>
+            ))}
+            {/* Crown molding. */}
             <mesh position={[0, HEIGHT - 0.04, 0.02]}>
                 <boxGeometry args={[width, 0.08, 0.04]} />
-                <meshStandardMaterial color={COLORS.trim} roughness={0.7} />
+                <meshStandardMaterial color={style.trim} roughness={0.7} />
             </mesh>
-            {holes.map((hole, index) => <Window key={index} {...hole} />)}
+            {holes.map((hole, index) => hole.kind === "doorway"
+                ? <Doorway key={index} {...hole} style={style} />
+                : <Window key={index} {...hole} wallColor={style.color} />)}
             {children}
+        </group>
+    );
+}
+
+/** An open passage: frame on this side, reveal through the gap between rooms. */
+function Doorway({ x, w, h, style }: Hole & { style: WallStyle }) {
+    const depth = WALL_GAP + 0.02;
+    return (
+        <group position={[x, 0, 0]}>
+            {[-w / 2, w / 2].map((side) => (
+                <mesh key={side} position={[side, h / 2, -depth / 2]}>
+                    <boxGeometry args={[0.01, h, depth]} />
+                    <meshStandardMaterial color={style.color} roughness={0.95} />
+                </mesh>
+            ))}
+            <mesh position={[0, h, -depth / 2]}>
+                <boxGeometry args={[w, 0.01, depth]} />
+                <meshStandardMaterial color={style.color} roughness={0.95} />
+            </mesh>
+            {/* Threshold across the gap. */}
+            <mesh position={[0, 0.006, -depth / 2]}>
+                <boxGeometry args={[w, 0.012, depth]} />
+                <meshStandardMaterial color={COLORS.darkWood} roughness={0.7} />
+            </mesh>
+            {[
+                [0, h + 0.05, w + 0.2, 0.1],
+                [-w / 2 - 0.05, h / 2, 0.1, h],
+                [w / 2 + 0.05, h / 2, 0.1, h],
+            ].map(([px, py, sw, sh], index) => (
+                <mesh key={index} position={[px, py, 0.02]}>
+                    <boxGeometry args={[sw, sh, 0.04]} />
+                    <meshStandardMaterial color={style.trim} roughness={0.7} />
+                </mesh>
+            ))}
         </group>
     );
 }
@@ -275,7 +350,7 @@ function Wall({
 const WAINSCOT_HEIGHT = 0.85;
 
 /** Wooden boards along the lower part of a wall, topped by a small rail. */
-function Wainscot({ width }: { width: number }) {
+function Wainscot({ width, trim }: { width: number; trim: string }) {
     const texture = useMemo(() => {
         panelTexture ??= makePanelTexture();
         const repeated = panelTexture.clone();
@@ -291,14 +366,14 @@ function Wainscot({ width }: { width: number }) {
             </mesh>
             <mesh position={[0, WAINSCOT_HEIGHT, 0.018]}>
                 <boxGeometry args={[width, 0.045, 0.036]} />
-                <meshStandardMaterial color={COLORS.trim} roughness={0.7} />
+                <meshStandardMaterial color={trim} roughness={0.7} />
             </mesh>
         </>
     );
 }
 
 /** A sagging string of warm bulbs between two points on a wall (local space). */
-function FairyLights({ from, to, sag = 0.25, count = 15 }: { from: [number, number]; to: [number, number]; sag?: number; count?: number }) {
+export function FairyLights({ from, to, sag = 0.25, count = 15 }: { from: [number, number]; to: [number, number]; sag?: number; count?: number }) {
     const { wire, bulbs } = useMemo(() => {
         const pointAt = (t: number) => new THREE.Vector3(
             THREE.MathUtils.lerp(from[0], to[0], t),
@@ -324,12 +399,11 @@ function FairyLights({ from, to, sag = 0.25, count = 15 }: { from: [number, numb
                     <meshBasicMaterial color={index % 3 === 1 ? "#ffc27a" : "#ffe0a6"} toneMapped={false} />
                 </mesh>
             ))}
-            <pointLight position={[(from[0] + to[0]) / 2, (from[1] + to[1]) / 2 - sag, 0.3]} color="#ffb870" intensity={1.2} distance={3} decay={1.5} />
         </group>
     );
 }
 
-function WavyCurtain({ width, height }: { width: number; height: number }) {
+function WavyCurtain({ width, height, color = COLORS.curtain }: { width: number; height: number; color?: string }) {
     const geometry = useMemo(() => {
         const plane = new THREE.PlaneGeometry(width, height, 28, 1);
         const positions = plane.attributes.position;
@@ -342,14 +416,14 @@ function WavyCurtain({ width, height }: { width: number; height: number }) {
 
     return (
         <mesh geometry={geometry}>
-            <meshStandardMaterial color={COLORS.curtain} roughness={1} side={THREE.DoubleSide} />
+            <meshStandardMaterial color={color} roughness={1} side={THREE.DoubleSide} />
         </mesh>
     );
 }
 
 let skyTexture: THREE.Texture | null = null;
 
-function Window({ x, y, w, h }: Hole) {
+function Window({ x, y, w, h, curtain, wallColor }: Hole & { wallColor: string }) {
     skyTexture ??= makeSkyTexture();
     const frame = 0.07;
     const bar = 0.04;
@@ -370,13 +444,13 @@ function Window({ x, y, w, h }: Hole) {
             ].map(([px, py, sw, sh], index) => (
                 <mesh key={`h${index}`} position={[px, py, -0.09]}>
                     <boxGeometry args={[sw, sh, 0.18]} />
-                    <meshStandardMaterial color={COLORS.wall} roughness={0.95} />
+                    <meshStandardMaterial color={wallColor} roughness={0.95} />
                 </mesh>
             ))}
             {[-w / 2, w / 2].map((px, index) => (
                 <mesh key={`v${index}`} position={[px, h / 2, -0.09]}>
                     <boxGeometry args={[0.01, h, 0.18]} />
-                    <meshStandardMaterial color={COLORS.wall} roughness={0.95} />
+                    <meshStandardMaterial color={wallColor} roughness={0.95} />
                 </mesh>
             ))}
             {/* Frame, mullions and sill. */}
@@ -404,14 +478,14 @@ function Window({ x, y, w, h }: Hole) {
             </mesh>
             {[-1, 1].map((side) => (
                 <group key={side} position={[side * (w / 2 + 0.2), h + 0.16 - curtainHeight / 2, 0.12]}>
-                    <WavyCurtain width={0.42} height={curtainHeight} />
+                    <WavyCurtain width={0.42} height={curtainHeight} color={curtain} />
                 </group>
             ))}
         </group>
     );
 }
 
-function Plant({ position, scale = 1, seed = 1 }: { position: [number, number, number]; scale?: number; seed?: number }) {
+export function Plant({ position, scale = 1, seed = 1 }: { position: [number, number, number]; scale?: number; seed?: number }) {
     const leaves = useMemo(() => {
         const random = seededRandom(seed);
         return Array.from({ length: 7 }, (_, i) => ({
@@ -441,7 +515,7 @@ function Plant({ position, scale = 1, seed = 1 }: { position: [number, number, n
     );
 }
 
-function Books({ width, seed }: { width: number; seed: number }) {
+export function Books({ width, seed }: { width: number; seed: number }) {
     const books = useMemo(() => {
         const random = seededRandom(seed);
         const colors = ["#c96f5b", "#e2b55c", "#7c9ccf", "#8bb17a", "#b48ac4", "#e9dccb", "#d58aa0"];
@@ -469,7 +543,7 @@ function Books({ width, seed }: { width: number; seed: number }) {
     );
 }
 
-function Bookshelf({ position }: { position: [number, number, number] }) {
+export function Bookshelf({ position }: { position: [number, number, number] }) {
     const width = 0.85;
     const height = 1.15;
     const depth = 0.32;
@@ -502,7 +576,7 @@ function Bookshelf({ position }: { position: [number, number, number] }) {
     );
 }
 
-function Dresser({ position, width = 0.95 }: { position: [number, number, number]; width?: number }) {
+export function Dresser({ position, width = 0.95 }: { position: [number, number, number]; width?: number }) {
     const height = 0.72;
     const depth = 0.45;
     return (
@@ -529,7 +603,7 @@ function Dresser({ position, width = 0.95 }: { position: [number, number, number
     );
 }
 
-function TableLamp({ position }: { position: [number, number, number] }) {
+export function TableLamp({ position }: { position: [number, number, number] }) {
     return (
         <group position={position}>
             <mesh position={[0, 0.1, 0]}>
@@ -540,12 +614,11 @@ function TableLamp({ position }: { position: [number, number, number] }) {
                 <cylinderGeometry args={[0.09, 0.14, 0.18, 20, 1, true]} />
                 <meshStandardMaterial color="#fff1d8" emissive={COLORS.lampGlow} emissiveIntensity={1.4} side={THREE.DoubleSide} />
             </mesh>
-            <pointLight position={[0, 0.3, 0.1]} color="#ffc489" intensity={1.2} distance={3} decay={1.5} />
         </group>
     );
 }
 
-function Painting({ position, size, texture }: { position: [number, number, number]; size: [number, number]; texture: THREE.Texture }) {
+export function Painting({ position, size, texture }: { position: [number, number, number]; size: [number, number]; texture: THREE.Texture }) {
     return (
         <group position={position}>
             <mesh>
@@ -560,47 +633,7 @@ function Painting({ position, size, texture }: { position: [number, number, numb
     );
 }
 
-function Door({ x }: { x: number }) {
-    const width = 0.9;
-    const height = 2.05;
-    return (
-        <group position={[x, 0, 0]}>
-            {[
-                [0, height + 0.04, width + 0.16, 0.08],
-                [-width / 2 - 0.04, height / 2, 0.08, height],
-                [width / 2 + 0.04, height / 2, 0.08, height],
-            ].map(([px, py, sw, sh], index) => (
-                <mesh key={index} position={[px, py, 0.02]}>
-                    <boxGeometry args={[sw, sh, 0.04]} />
-                    <meshStandardMaterial color={COLORS.trim} roughness={0.7} />
-                </mesh>
-            ))}
-            <mesh position={[0, height / 2, 0.025]}>
-                <boxGeometry args={[width, height, 0.05]} />
-                <meshStandardMaterial color={COLORS.darkWood} roughness={0.6} />
-            </mesh>
-            {[
-                [-0.2, 1.45], [0.2, 1.45], [-0.2, 0.55], [0.2, 0.55],
-            ].map(([px, py], index) => (
-                <mesh key={index} position={[px, py, 0.055]}>
-                    <boxGeometry args={[0.3, py > 1 ? 0.75 : 0.85, 0.012]} />
-                    <meshStandardMaterial color="#7a4927" roughness={0.65} />
-                </mesh>
-            ))}
-            <mesh position={[width / 2 - 0.1, 1.0, 0.08]}>
-                <sphereGeometry args={[0.035, 12, 10]} />
-                <meshStandardMaterial color="#e3c27a" metalness={0.6} roughness={0.3} />
-            </mesh>
-            {/* Small wreath like in the original room. */}
-            <mesh position={[0, 1.65, 0.07]}>
-                <torusGeometry args={[0.11, 0.035, 8, 20]} />
-                <meshStandardMaterial color={COLORS.leafDark} roughness={0.9} flatShading />
-            </mesh>
-        </group>
-    );
-}
-
-function Bed({ position }: { position: [number, number, number] }) {
+export function Bed({ position }: { position: [number, number, number] }) {
     const width = 1.6;
     const length = 2.0;
     return (
@@ -631,7 +664,7 @@ function Bed({ position }: { position: [number, number, number] }) {
     );
 }
 
-function Desk({ position }: { position: [number, number, number] }) {
+export function Desk({ position }: { position: [number, number, number] }) {
     const width = 1.1;
     const depth = 0.55;
     const height = 0.74;
@@ -680,7 +713,7 @@ function Desk({ position }: { position: [number, number, number] }) {
     );
 }
 
-function WallShelf({ position, width = 0.8 }: { position: [number, number, number]; width?: number }) {
+export function WallShelf({ position, width = 0.8 }: { position: [number, number, number]; width?: number }) {
     return (
         <group position={position}>
             <mesh position={[0, 0, 0.11]}>
@@ -697,7 +730,7 @@ function WallShelf({ position, width = 0.8 }: { position: [number, number, numbe
     );
 }
 
-function CeilingLamp({ position }: { position: [number, number, number] }) {
+export function CeilingLamp({ position }: { position: [number, number, number] }) {
     return (
         <group position={position}>
             <mesh position={[0, -0.15, 0]}>
@@ -708,12 +741,11 @@ function CeilingLamp({ position }: { position: [number, number, number] }) {
                 <cylinderGeometry args={[0.3, 0.34, 0.08, 32]} />
                 <meshStandardMaterial color="#ffd6a3" emissive="#ff9f4d" emissiveIntensity={1.6} roughness={0.6} />
             </mesh>
-            <pointLight position={[0, -0.45, 0]} color="#ffd1a0" intensity={5} distance={10} decay={1.2} />
         </group>
     );
 }
 
-function Rug({ position }: { position: [number, number, number] }) {
+export function Rug({ position }: { position: [number, number, number] }) {
     const texture = useMemo(makeRugTexture, []);
     return (
         <RoundedBox smoothness={2} bevelSegments={1} args={[2.8, 0.016, 2.0]} radius={0.007} position={position}>
@@ -727,7 +759,7 @@ function Rug({ position }: { position: [number, number, number] }) {
  * Bake them into one mesh per distinct material and hide the originals; lights
  * stay where they are.
  */
-function mergeStaticMeshes(root: THREE.Object3D) {
+export function mergeStaticMeshes(root: THREE.Object3D) {
     root.updateWorldMatrix(true, true);
     const batches = new Map<string, { material: THREE.Material; renderOrder: number; geometries: THREE.BufferGeometry[] }>();
     const sources: THREE.Mesh[] = [];
@@ -778,19 +810,85 @@ function mergeStaticMeshes(root: THREE.Object3D) {
     };
 }
 
-/** Keeps the orbiting camera inside the walls. */
-function CameraBounds() {
-    useFrame(({ camera }) => {
-        const margin = 0.25;
-        camera.position.x = THREE.MathUtils.clamp(camera.position.x, MIN_X + margin, MAX_X - margin);
-        camera.position.y = THREE.MathUtils.clamp(camera.position.y, FLOOR_Y + 0.2, FLOOR_Y + HEIGHT - 0.2);
-        camera.position.z = THREE.MathUtils.clamp(camera.position.z, MIN_Z + margin, MAX_Z - margin);
-    });
-    return null;
+export type WallSpec = { holes?: Hole[]; children?: ReactNode };
+
+/**
+ * Floor, ceiling and four walls inside `bounds`, with wall-local furniture.
+ * Wall-local x runs along the wall; +z points into the room.
+ */
+export function Room({
+    bounds,
+    floorTones,
+    ceilingColor,
+    style = DEFAULT_WALL_STYLE,
+    beams = true,
+    north,
+    south,
+    east,
+    west,
+    children,
+}: {
+    bounds: Bounds;
+    floorTones?: string[];
+    ceilingColor: string;
+    style?: WallStyle;
+    beams?: boolean;
+    north?: WallSpec;
+    south?: WallSpec;
+    east?: WallSpec;
+    west?: WallSpec;
+    children?: ReactNode;
+}) {
+    const width = bounds.maxX - bounds.minX;
+    const depth = bounds.maxZ - bounds.minZ;
+    const { x: cx, z: cz } = center(bounds);
+    const floorTexture = useMemo(() => makeFloorTexture(width, depth, floorTones),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [width, depth, floorTones?.join()]);
+
+    const rootRef = useRef<THREE.Group>(null);
+    // Layout effects run after the children are attached and before the warm-up compiles them.
+    useLayoutEffect(() => mergeStaticMeshes(rootRef.current!), []);
+
+    return (
+        <group ref={rootRef}>
+            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[cx, FLOOR_Y, cz]}>
+                <planeGeometry args={[width, depth]} />
+                <meshStandardMaterial map={floorTexture} roughness={0.75} />
+            </mesh>
+            <mesh rotation={[Math.PI / 2, 0, 0]} position={[cx, FLOOR_Y + HEIGHT, cz]}>
+                <planeGeometry args={[width, depth]} />
+                <meshStandardMaterial color={ceilingColor} roughness={1} />
+            </mesh>
+            <Wall width={width} position={[cx, FLOOR_Y, bounds.minZ]} rotationY={0} holes={north?.holes} style={style}>{north?.children}</Wall>
+            <Wall width={width} position={[cx, FLOOR_Y, bounds.maxZ]} rotationY={Math.PI} holes={south?.holes} style={style}>{south?.children}</Wall>
+            <Wall width={depth} position={[bounds.minX, FLOOR_Y, cz]} rotationY={Math.PI / 2} holes={west?.holes} style={style}>{west?.children}</Wall>
+            <Wall width={depth} position={[bounds.maxX, FLOOR_Y, cz]} rotationY={-Math.PI / 2} holes={east?.holes} style={style}>{east?.children}</Wall>
+            {beams && [bounds.minZ + depth * 0.17, bounds.minZ + depth * 0.5, bounds.minZ + depth * 0.82].map((z) => (
+                <mesh key={z} position={[cx, FLOOR_Y + HEIGHT - 0.07, z]}>
+                    <boxGeometry args={[width, 0.14, 0.18]} />
+                    <meshStandardMaterial color={style.trim} roughness={0.8} />
+                </mesh>
+            ))}
+            {children}
+        </group>
+    );
 }
 
+export function doorwayHole(bounds: Bounds, side: "west" | "east"): Hole {
+    return { kind: "doorway", x: doorwayLocalX(bounds, side), y: 0, w: DOORWAY_WIDTH, h: DOORWAY_HEIGHT };
+}
+
+const JENNY = ROOM_BOUNDS.jenny;
+
+/** World positions of Jenny's lamps; lights for every room exist from the start. */
+export const JENNY_LIGHTS = [
+    { position: [-1.0, FLOOR_Y + HEIGHT - 0.45, -1.6], color: "#ffd1a0", intensity: 5, distance: 10, decay: 1.2 },
+    { position: [JENNY.minX + 0.33, FLOOR_Y + 1.02, center(JENNY).z - 1.35], color: "#ffc489", intensity: 1.2, distance: 3, decay: 1.5 },
+    { position: [center(JENNY).x + 1.8, FLOOR_Y + 2.25, JENNY.minZ + 0.3], color: "#ffb870", intensity: 1.2, distance: 3, decay: 1.5 },
+] as const;
+
 export default function CozyRoom() {
-    const floorTexture = useMemo(makeFloorTexture, []);
     const paintings = useMemo(() => [
         makePaintingTexture(5, ["#f2b8a2", "#9cc4e4", "#f5d48f", "#b6d7a8"]),
         makePaintingTexture(8, ["#c9b6e4", "#f6c1cf", "#a8d5cf", "#fbe0a6"]),
@@ -801,81 +899,60 @@ export default function CozyRoom() {
         { x: -1.0, y: 1.0, w: 1.25, h: 1.25 },
         { x: 1.8, y: 1.05, w: 1.35, h: 1.2 },
     ], []);
-    const eastHoles = useMemo<Hole[]>(() => [{ x: -1.3, y: 1.0, w: 1.1, h: 1.25 }], []);
-
-    const rootRef = useRef<THREE.Group>(null);
-    // Layout effects run after the children are attached and before the warm-up compiles them.
-    useLayoutEffect(() => mergeStaticMeshes(rootRef.current!), []);
+    const westHoles = useMemo(() => [doorwayHole(JENNY, "west")], []);
+    const eastHoles = useMemo(() => [doorwayHole(JENNY, "east")], []);
 
     return (
-        <group ref={rootRef}>
-            <color attach="background" args={["#2a1d16"]} />
-            <CameraBounds />
-
-            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[CENTER_X, FLOOR_Y, CENTER_Z]}>
-                <planeGeometry args={[WIDTH, DEPTH]} />
-                <meshStandardMaterial map={floorTexture} roughness={0.75} />
-            </mesh>
-            <mesh rotation={[Math.PI / 2, 0, 0]} position={[CENTER_X, FLOOR_Y + HEIGHT, CENTER_Z]}>
-                <planeGeometry args={[WIDTH, DEPTH]} />
-                <meshStandardMaterial color={COLORS.ceiling} roughness={1} />
-            </mesh>
-
-            {/* North wall: windows, bed and desk. */}
-            <Wall width={WIDTH} position={[CENTER_X, FLOOR_Y, MIN_Z]} rotationY={0} holes={northHoles}>
-                <Desk position={[-1.0, 0, 0.3]} />
-                <Bed position={[1.8, 0, 1.0]} />
-                <FairyLights from={[0.85, 2.5]} to={[2.75, 2.5]} />
-                <group position={[0.75, 0, 0.25]}>
-                    <BlobShadow size={0.8} opacity={0.5} />
-                    <RoundedBox smoothness={2} bevelSegments={1} args={[0.45, 0.5, 0.4]} radius={0.02} position={[0, 0.25, 0]}>
-                        <meshStandardMaterial color={COLORS.wood} roughness={0.65} />
-                    </RoundedBox>
-                    <Plant position={[0.05, 0.5, 0]} scale={0.8} seed={41} />
-                </group>
-            </Wall>
-
-            {/* West wall: bookshelf, dresser with lamp, pictures and the door. */}
-            <Wall width={DEPTH} position={[MIN_X, FLOOR_Y, CENTER_Z]} rotationY={Math.PI / 2}>
-                <Bookshelf position={[2.9, 0, 0.17]} />
-                <Dresser position={[1.6, 0, 0.23]} />
-                <TableLamp position={[1.35, 0.72, 0.23]} />
-                <Plant position={[1.9, 0.72, 0.2]} scale={0.8} seed={51} />
-                <WallShelf position={[1.65, 1.6, 0]} />
-                <Painting position={[2.9, 1.7, 0.02]} size={[0.5, 0.62]} texture={paintings[0]} />
-                <Painting position={[0.45, 1.4, 0.02]} size={[0.42, 0.42]} texture={paintings[2]} />
-                <Door x={-1.3} />
-                <Plant position={[-0.45, 0, 0.25]} scale={1.6} seed={61} />
-            </Wall>
-
-            {/* East wall: third window and an armchair corner. */}
-            <Wall width={DEPTH} position={[MAX_X, FLOOR_Y, CENTER_Z]} rotationY={-Math.PI / 2} holes={eastHoles}>
-                <Dresser position={[0.6, 0, 0.23]} width={0.8} />
-                <Plant position={[0.4, 0.72, 0.2]} scale={0.9} seed={71} />
-                <Painting position={[0.75, 1.5, 0.02]} size={[0.55, 0.4]} texture={paintings[1]} />
-                <Plant position={[1.9, 0, 0.3]} scale={1.8} seed={73} />
-            </Wall>
-
-            {/* South wall behind the default camera. */}
-            <Wall width={WIDTH} position={[CENTER_X, FLOOR_Y, MAX_Z]} rotationY={Math.PI}>
-                <Bookshelf position={[-1.2, 0, 0.17]} />
-                <Painting position={[0.6, 1.5, 0.02]} size={[0.8, 0.55]} texture={paintings[1]} />
-                <WallShelf position={[1.9, 1.4, 0]} width={1} />
-                <Plant position={[2.6, 0, 0.3]} scale={1.6} seed={81} />
-            </Wall>
-
+        <Room
+            bounds={JENNY}
+            ceilingColor={COLORS.ceiling}
+            north={{ holes: northHoles, children: (
+                <>
+                    <Desk position={[-1.0, 0, 0.3]} />
+                    <Bed position={[1.8, 0, 1.0]} />
+                    <FairyLights from={[0.85, 2.5]} to={[2.75, 2.5]} />
+                    <group position={[0.75, 0, 0.25]}>
+                        <BlobShadow size={0.8} opacity={0.5} />
+                        <RoundedBox smoothness={2} bevelSegments={1} args={[0.45, 0.5, 0.4]} radius={0.02} position={[0, 0.25, 0]}>
+                            <meshStandardMaterial color={COLORS.wood} roughness={0.65} />
+                        </RoundedBox>
+                        <Plant position={[0.05, 0.5, 0]} scale={0.8} seed={41} />
+                    </group>
+                </>
+            ) }}
+            west={{ holes: westHoles, children: (
+                <>
+                    {/* Bookshelf, dresser with lamp and pictures; the doorway leads to Bob. */}
+                    <Bookshelf position={[2.9, 0, 0.17]} />
+                    <Dresser position={[1.6, 0, 0.23]} />
+                    <TableLamp position={[1.35, 0.72, 0.23]} />
+                    <Plant position={[1.9, 0.72, 0.2]} scale={0.8} seed={51} />
+                    <WallShelf position={[1.65, 1.6, 0]} />
+                    <Painting position={[2.9, 1.7, 0.02]} size={[0.5, 0.62]} texture={paintings[0]} />
+                    <Painting position={[0.45, 1.4, 0.02]} size={[0.42, 0.42]} texture={paintings[2]} />
+                    <Plant position={[-0.45, 0, 0.25]} scale={1.6} seed={61} />
+                </>
+            ) }}
+            east={{ holes: eastHoles, children: (
+                <>
+                    {/* The doorway leads to Smyth. */}
+                    <Dresser position={[-0.4, 0, 0.23]} width={0.8} />
+                    <Plant position={[-0.6, 0.72, 0.2]} scale={0.9} seed={71} />
+                    <Painting position={[-0.35, 1.5, 0.02]} size={[0.55, 0.4]} texture={paintings[1]} />
+                    <Plant position={[2.6, 0, 0.3]} scale={1.8} seed={73} />
+                </>
+            ) }}
+            south={{ children: (
+                <>
+                    <Bookshelf position={[-1.2, 0, 0.17]} />
+                    <Painting position={[0.6, 1.5, 0.02]} size={[0.8, 0.55]} texture={paintings[1]} />
+                    <WallShelf position={[1.9, 1.4, 0]} width={1} />
+                    <Plant position={[2.6, 0, 0.3]} scale={1.6} seed={81} />
+                </>
+            ) }}
+        >
             <Rug position={[-0.5, FLOOR_Y + 0.008, -0.6]} />
             <CeilingLamp position={[-1.0, FLOOR_Y + HEIGHT, -1.6]} />
-            {/* Exposed ceiling beams for a cottage feel. */}
-            {[-2.8, -0.4, 1.9].map((z) => (
-                <mesh key={z} position={[CENTER_X, FLOOR_Y + HEIGHT - 0.07, z]}>
-                    <boxGeometry args={[WIDTH, 0.14, 0.18]} />
-                    <meshStandardMaterial color={COLORS.trim} roughness={0.8} />
-                </mesh>
-            ))}
-
-            <hemisphereLight args={["#ffe9d2", "#c99a74", 0.6]} />
-            <directionalLight position={[2, 3, -5]} color="#ffeedd" intensity={1.1} />
-        </group>
+        </Room>
     );
 }

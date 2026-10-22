@@ -365,7 +365,34 @@ button:focus-visible {
     color: rgba(255, 255, 255, 0.8);
     background: transparent;
 }
+/* Hover card above a character or doorway in the 3D scene. */
+.sceneTooltip {
+    --member-color: #8fc1ff;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: max-content;
+    max-width: 220px;
+    padding: 8px 12px;
+    border: 1px solid var(--member-color);
+    border-radius: 12px;
+    color: white;
+    background: rgba(20, 23, 37, 0.88);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(8px);
+    font-size: 12px;
+    line-height: 1.35;
+    pointer-events: none;
+    animation: raisedHandIn 160ms ease-out;
+}
+/* Next to the face instead of over it; the narrow lens leaves no room above the head. */
+.sceneTooltipBeside { transform: translateX(calc(50% + 70px)); }
+.sceneTooltip strong { color: var(--member-color); font-size: 15px; }
+.sceneTooltip span { font-weight: 600; }
+.sceneTooltip small { color: rgba(255, 255, 255, 0.72); font-size: 12px; }
+
 @media (prefers-reduced-motion: reduce) {
+    .sceneTooltip { animation: none; }
     .groupMemberButton.isSpeaking, .raisedHand { animation: none; }
 }
 .audioControls {
