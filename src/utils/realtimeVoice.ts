@@ -1,5 +1,8 @@
 export async function startRealtimeVoiceSession(options?: {
     microphone?: boolean;
+    /** Without `microphone`: keep a send slot so a shared mic track can be attached later. */
+    sendAudio?: boolean;
+    voice?: string;
     signal?: AbortSignal;
     onAssistantTextDelta?: (delta: string) => void;
     onAssistantTextDone?: () => void;
@@ -33,6 +36,7 @@ export async function startRealtimeVoiceSession(options?: {
     const useMicrophone = options?.microphone ?? true;
 
     let localStream: MediaStream | null = null;
+    let audioTransceiver: RTCRtpTransceiver | null = null;
 
     const dispose = () => {
         localStream?.getTracks().forEach((track) => track.stop());
@@ -65,8 +69,8 @@ export async function startRealtimeVoiceSession(options?: {
         } else {
             // Text-only mode:
             // We still need an audio media section so the Realtime API can send audio back.
-            pc.addTransceiver("audio", {
-                direction: "recvonly",
+            audioTransceiver = pc.addTransceiver("audio", {
+                direction: options?.sendAudio ? "sendrecv" : "recvonly",
             });
         }
 
@@ -161,7 +165,7 @@ export async function startRealtimeVoiceSession(options?: {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
 
-        const response = await fetch("/api/realtime-call", {
+        const response = await fetch(`/api/realtime-call${options?.voice ? `?voice=${encodeURIComponent(options.voice)}` : ""}`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/sdp", //"text/plain",
@@ -182,7 +186,10 @@ export async function startRealtimeVoiceSession(options?: {
         });
 
         options?.signal?.throwIfAborted();
-        return { pc, dc, audioEl, dispose };
+        // Switching tracks on an existing send slot needs no renegotiation.
+        const setMicrophoneTrack = (track: MediaStreamTrack | null) =>
+            audioTransceiver?.sender.replaceTrack(track) ?? Promise.resolve();
+        return { pc, dc, audioEl, dispose, setMicrophoneTrack };
     } catch (error) {
         dispose();
         throw error;

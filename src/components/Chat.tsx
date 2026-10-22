@@ -1,5 +1,5 @@
 import { lazy, Suspense, useImperativeHandle, useState } from "react";
-import type { Ref } from "react";
+import type { CSSProperties, Ref } from "react";
 import type { Message } from "../types/chat";
 
 //08062026A import { useEffect, useRef } from 'react'
@@ -38,14 +38,8 @@ import {
     type SpeechPlaybackState,
 } from "../utils/speakText";
 
-//import { startRealtimeVoiceSession } from "../utils/realtimeVoice";
-import {
-    startRealtimeVoiceSession,
-    sendRealtimeText
-}
-
-//void sendRealtimeText
-from "../utils/realtimeVoice";
+import { GroupConversation, type RaisedHand } from "../utils/groupConversation";
+import { CHARACTERS, CHARACTER_BY_ID, type CharacterId } from "../data/characters";
 
 //import ChatTranscript from "./ChatTranscript";
 
@@ -149,7 +143,9 @@ function ChatTranscript({
             <div className="uiAnswer">
                 {messages.map((msg, index) => (
                     <div className={`transcriptMessage transcriptMessage-${msg.role}`} key={index}>
-                        <strong>{msg.role === "user" ? "You" : assistantName}:</strong>{" "}
+                        <strong style={msg.speaker && msg.speaker in CHARACTER_BY_ID ? { color: CHARACTER_BY_ID[msg.speaker as CharacterId].color } : undefined}>
+                            {msg.role === "user" ? "You" : CHARACTER_BY_ID[msg.speaker as CharacterId]?.name ?? assistantName}:
+                        </strong>{" "}
                         <InteractiveText
                             text={msg.content}
                             onWord={showWordInfo}
@@ -372,6 +368,75 @@ function LanguagePanel({
     );
 }
 
+/**
+ * The group at a glance: tap someone to talk to them. When a friend raises
+ * their hand, their teaser appears and the user decides whether they speak.
+ */
+function GroupBar({
+    addressee,
+    speakingId,
+    hands,
+    onAddress,
+    onLetSpeak,
+    onDismissHand,
+}: {
+    addressee: CharacterId;
+    speakingId: CharacterId | null;
+    hands: RaisedHand[];
+    onAddress: (id: CharacterId) => void;
+    onLetSpeak: (hand: RaisedHand) => void;
+    onDismissHand: (id: CharacterId) => void;
+}) {
+    return (
+        <div className="groupBar" aria-label="Group members">
+            {hands.length > 0 && (
+                <div className="raisedHands" role="status" aria-live="polite">
+                    {hands.map((hand) => {
+                        const character = CHARACTER_BY_ID[hand.id];
+                        return (
+                            <div className="raisedHand" key={hand.id} style={{ "--member-color": character.color } as CSSProperties}>
+                                <span className="raisedHandText"><strong>{character.name} ✋</strong> “{hand.teaser}”</span>
+                                <button type="button" className="raisedHandAllow" onClick={() => onLetSpeak(hand)}>
+                                    Let {character.name} speak
+                                </button>
+                                <button
+                                    type="button"
+                                    className="raisedHandDismiss"
+                                    onClick={() => onDismissHand(hand.id)}
+                                    aria-label={`Not now, ${character.name}`}
+                                    title="Not now"
+                                >
+                                    ×
+                                </button>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+            <div className="groupMembers">
+                {CHARACTERS.map((character) => {
+                    const hasHand = hands.some((raised) => raised.id === character.id);
+                    const isAddressed = addressee === character.id;
+                    return (
+                        <button
+                            type="button"
+                            key={character.id}
+                            style={{ "--member-color": character.color } as CSSProperties}
+                            className={`groupMemberButton${isAddressed ? " isAddressed" : ""}${speakingId === character.id ? " isSpeaking" : ""}`}
+                            onClick={() => onAddress(character.id)}
+                            aria-pressed={isAddressed}
+                            title={isAddressed ? `You are talking to ${character.name}` : `Talk to ${character.name}`}
+                        >
+                            <span className="groupMemberName">{character.name}{hasHand && <span aria-hidden="true"> ✋</span>}</span>
+                            <small>{isAddressed ? "Talking to you" : character.role}</small>
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
 function ChatInput({
                            input,
                            setInput,
@@ -379,6 +444,7 @@ function ChatInput({
                            microphoneEnabled,
                            microphoneConnecting,
                            toggleMicrophone,
+                           onFocusInput,
                        }: {
         input: string;
         setInput: (value: string) => void;
@@ -386,6 +452,7 @@ function ChatInput({
         microphoneEnabled: boolean;
         microphoneConnecting: boolean;
         toggleMicrophone: () => void | Promise<void>;
+        onFocusInput: () => void;
     }) {
         const [microphonePromptDismissed, setMicrophonePromptDismissed] = useState(false);
 
@@ -394,6 +461,7 @@ function ChatInput({
                 <div className="chatInputRow">
                     <input
                         value={input}
+                        onFocus={onFocusInput}
                         onChange={(e) => setInput(e.target.value)}
                         onKeyDown={(e) => {
                             if (e.key === "Enter") {
@@ -521,35 +589,6 @@ function detectExpression(text: string) {
     return "relaxed";
 }
 
-function waitForDataChannelOpen(dc: RTCDataChannel): Promise<void> {
-    if (dc.readyState === "open") {
-        return Promise.resolve();
-    }
-
-    return new Promise((resolve, reject) => {
-        const timeout = window.setTimeout(() => {
-            reject(new Error("Realtime data channel did not open"));
-        }, 10_000);
-
-        const handleOpen = () => {
-            window.clearTimeout(timeout);
-            dc.removeEventListener("open", handleOpen);
-            dc.removeEventListener("error", handleError);
-            resolve();
-        };
-
-        const handleError = () => {
-            window.clearTimeout(timeout);
-            dc.removeEventListener("open", handleOpen);
-            dc.removeEventListener("error", handleError);
-            reject(new Error("Realtime data channel error"));
-        };
-
-        dc.addEventListener("open", handleOpen);
-        dc.addEventListener("error", handleError);
-    });
-}
-
 import type { ChatMessage } from "../data/exampleConversations";
 
 export type ChatHandle = { startNewConversation: () => void };
@@ -579,30 +618,6 @@ function updateSceneLoadingProgress(progress: number) {
         sceneLoadingHideTimer = window.setTimeout(() => {
             delete document.documentElement.dataset.avatarLoading;
         }, 450);
-    }
-}
-
-type AvatarId = "male" | "jenny";
-
-const AVATAR_URLS: Record<AvatarId, string> = {
-    male: "/model/human11.vrm",
-    jenny: "/model/jenny.vrm",
-};
-
-function setSessionMicrophoneEnabled(
-    session: any,
-    enabled: boolean
-) {
-    const pc = session?.pc as RTCPeerConnection | undefined;
-
-    if (!pc) {
-        return;
-    }
-
-    for (const sender of pc.getSenders()) {
-        if (sender.track?.kind === "audio") {
-            sender.track.enabled = enabled;
-        }
     }
 }
 
@@ -649,8 +664,6 @@ export default function Chat({
     const [speechPreparing, setSpeechPreparing] = useState(false);
     const [speechPlaybackState, setSpeechPlaybackState] =
         useState<SpeechPlaybackState>("idle");
-    const [realtimeDc, setRealtimeDc] =
-        useState<RTCDataChannel | null>(null);
     const [showLanguagePanel, setShowLanguagePanel] =
         useState(false);
     const [currentExpression, setCurrentExpression] =
@@ -693,9 +706,6 @@ export default function Chat({
 
     const conversationAbortRef = useRef(new AbortController());
     const [conversationVersion, setConversationVersion] = useState(0);
-    const realtimeSessionRef = useRef<any>(null);
-    const realtimeStartPromiseRef = useRef<Promise<any> | null>(null);
-    const realtimeModeRef = useRef<"voice" | "text" | null>(null);
     const lastSavedMessageCountRef = useRef(0);
     const conversationNodeIdRef = useRef<string>(crypto.randomUUID());
     // No microphone track exists until a voice session has actually started.
@@ -703,7 +713,10 @@ export default function Chat({
     // silently ignored (notably when permission had not already been granted).
     const [microphoneEnabled, setMicrophoneEnabled] = useState(false);
     const [microphoneConnecting, setMicrophoneConnecting] = useState(false);
-    const [avatar, setAvatar] = useState<AvatarId>("jenny");
+    // Who the microphone and typed messages go to; others join when given the floor.
+    const [addressee, setAddressee] = useState<CharacterId>("jenny");
+    const [speakingId, setSpeakingId] = useState<CharacterId | null>(null);
+    const [hands, setHands] = useState<RaisedHand[]>([]);
     const [speechRate, setSpeechRate] = useState(0.55);
     const speechRateRef = useRef(speechRate);
     const [sentenceCount, setSentenceCount] = useState(1);
@@ -745,245 +758,114 @@ export default function Chat({
         }
     };
 
-    const selectAvatar = (nextAvatar: AvatarId) => {
-        if (nextAvatar === avatar) return;
+    const groupRef = useRef<GroupConversation | null>(null);
+    const settingsRef = useRef("");
+    // Message id of each character's reply that is still streaming.
+    const replyIdsRef = useRef(new Map<CharacterId, string>());
 
-        window.clearTimeout(sceneLoadingHideTimer);
-        document.documentElement.dataset.avatarLoading = "true";
-        const progressCard = document.querySelector<HTMLElement>(".sceneLoading");
-        if (progressCard) progressCard.dataset.label = `Loading ${nextAvatar === "jenny" ? "Jenny" : "Bob"}`;
-        updateSceneLoadingProgress(0.04);
-        setAvatar(nextAvatar);
-        localStorage.setItem("selected-avatar", nextAvatar);
+    const ensureGroup = () => {
+        if (groupRef.current) return groupRef.current;
+        const replyIds = replyIdsRef.current;
+        const group = new GroupConversation({
+            onUserSpeechStart: () => {
+                cancelSpeech();
+                setSpeechPreparing(false);
+            },
+            onUserText: (text) => {
+                void detectGapWords(text);
+                // Replies start when speech ends, so the transcript often arrives
+                // after a reply began; keep the user's line above that reply.
+                const streaming = new Set(replyIds.values());
+                setRealtimeMessages((prev) => {
+                    const next = [...prev];
+                    const insertAt = next.findIndex((message) => message.id !== undefined && streaming.has(message.id));
+                    next.splice(insertAt === -1 ? next.length : insertAt, 0, { role: "user", content: text });
+                    return next;
+                });
+                if (!streaming.size) setSpeechPreparing(true);
+            },
+            onReplyDelta: (id, text) => {
+                let messageId = replyIds.get(id);
+                if (!messageId) {
+                    messageId = crypto.randomUUID();
+                    replyIds.set(id, messageId);
+                }
+                const content = limitTextToSentences(text, sentenceCountRef.current);
+                const replyId = messageId;
+                setCurrentExpression(detectExpression(text));
+                setSpeechPreparing(false);
+                setRealtimeMessages((prev) => prev.some((message) => message.id === replyId)
+                    ? prev.map((message) => message.id === replyId ? { ...message, content } : message)
+                    : [...prev, { id: replyId, role: "assistant", speaker: id, content }]);
+            },
+            onReplyDone: (id, text) => {
+                const replyId = replyIds.get(id);
+                replyIds.delete(id);
+                const content = limitTextToSentences(text, sentenceCountRef.current);
+                setRealtimeMessages((prev) => replyId && prev.some((message) => message.id === replyId)
+                    ? prev.map((message) => message.id === replyId ? { ...message, content } : message)
+                    : [...prev, { id: crypto.randomUUID(), role: "assistant", speaker: id, content }]);
+            },
+            onReplyStopped: (id) => { replyIds.delete(id); },
+            onSpeakingChange: (id) => {
+                setSpeakingId(id);
+                setRealtimeSpeaking(id !== null);
+                setSpeechPlaybackState(id ? "playing" : "idle");
+                if (id) setSpeechPreparing(false);
+            },
+            onHands: setHands,
+            onAddresseeChange: setAddressee,
+            onConnectionError: (id, error) => {
+                console.error(`${CHARACTER_BY_ID[id].name} could not join:`, error);
+                setSpeechPreparing(false);
+                setRealtimeMessages((prev) => [...prev, {
+                    role: "assistant",
+                    speaker: id,
+                    content: "Sorry, I could not connect just now. Please try again.",
+                }]);
+            },
+        }, conversationAbortRef.current.signal);
+        group.updateSettings(settingsRef.current);
+        groupRef.current = group;
+        return group;
     };
 
-    const startRealtimeIfNeeded = async (microphone: boolean = true) => {
-            const requestedMode = microphone ? "voice" : "text";
+    const addressCharacter = (id: CharacterId) => {
+        primeSpeechPlayback();
+        void ensureGroup().setAddressee(id).catch((error) => console.error("Could not switch speaker:", error));
+    };
 
-            if (
-                realtimeSessionRef.current &&
-                realtimeSessionRef.current.dc?.readyState === "open"
-            ) {
-                // Existing voice session can also handle typed text.
-                if (realtimeModeRef.current === "voice") {
-                    return realtimeSessionRef.current;
-                }
-
-                // Existing text-only session can handle typed text.
-                if (
-                    realtimeModeRef.current === "text" &&
-                    requestedMode === "text"
-                ) {
-                    return realtimeSessionRef.current;
-                }
-
-                // If we currently have text-only mode but now want voice,
-                // close text-only and start a new microphone session.
-                if (
-                    realtimeModeRef.current === "text" &&
-                    requestedMode === "voice"
-                ) {
-                    try {
-                        realtimeSessionRef.current.dispose?.();
-                    } catch {
-                        // ignore
-                    }
-
-                    realtimeSessionRef.current = null;
-                    realtimeModeRef.current = null;
-                    setRealtimeDc(null);
-                }
-            }
-
-            if (realtimeStartPromiseRef.current) {
-                return realtimeStartPromiseRef.current;
-            }
-
-            const signal = conversationAbortRef.current.signal;
-            const startPromise = (async () => {
-                let currentAssistantText = "";
-                let currentAssistantIndex: number | null = null;
-
-                const session = await startRealtimeVoiceSession({
-                    microphone,
-                    signal,
-                    muteRemoteAudio: false,
-                    onMicrophoneReady: () => setMicrophoneEnabled(true),
-
-                    onUserSpeechStart: () => {
-                        cancelSpeech();
-                        setSpeechPreparing(false);
-                        setRealtimeSpeaking(false);
-                        // An interrupted reply stays in the transcript; the next one gets its own line.
-                        currentAssistantText = "";
-                        currentAssistantIndex = null;
-                    },
-
-                    onUserTextDone: (text) => {
-                        void detectGapWords(text);
-
-                        // Realtime starts answering on speech_stopped, so the
-                        // transcript often arrives after the reply has begun.
-                        // Keep the reply text and place the user line above it.
-                        const replyIndex = currentAssistantIndex;
-                        if (replyIndex !== null) currentAssistantIndex = replyIndex + 1;
-
-                        setRealtimeMessages((prev) => {
-                            const next = [...prev];
-                            const userMessage: Message = { role: "user", content: text };
-
-                            if (replyIndex !== null && replyIndex <= next.length) {
-                                next.splice(replyIndex, 0, userMessage);
-                            } else {
-                                next.push(userMessage);
-                            }
-
-                            return next;
-                        });
-
-                        if (replyIndex === null && !currentAssistantText) {
-                            setSpeechPreparing(true);
-                        }
-                    },
-
-                    onAssistantTextDelta: (delta) => {
-                        currentAssistantText += delta;
-                        const limitedText = limitTextToSentences(
-                            currentAssistantText,
-                            sentenceCountRef.current
-                        );
-
-                        setCurrentExpression(
-                            detectExpression(currentAssistantText)
-                        );
-
-                        setRealtimeMessages((prev) => {
-                            const next = [...prev];
-
-                            if (currentAssistantIndex === null) {
-                                currentAssistantIndex = next.length;
-
-                                next.push({
-                                    role: "assistant",
-                                    content: limitedText,
-                                });
-                            } else {
-                                next[currentAssistantIndex] = {
-                                    role: "assistant",
-                                    content: limitedText,
-                                };
-                            }
-
-                            return next;
-                        });
-                    },
-
-                    onAssistantTextDone: () => {
-                        const completedText = limitTextToSentences(
-                            currentAssistantText,
-                            sentenceCountRef.current
-                        );
-                        const completedAssistantIndex = currentAssistantIndex;
-                        currentAssistantText = "";
-                        currentAssistantIndex = null;
-                        console.log("Assistant text done");
-
-                        if (completedAssistantIndex !== null) {
-                            setRealtimeMessages((prev) => {
-                                const next = [...prev];
-                                const message = next[completedAssistantIndex];
-
-                                if (message?.role === "assistant") {
-                                    next[completedAssistantIndex] = {
-                                        ...message,
-                                        content: completedText,
-                                    };
-                                }
-
-                                return next;
-                            });
-                        }
-                    },
-                    onAudioStart: () => {
-                        setSpeechPreparing(false);
-                        setRealtimeSpeaking(true);
-                        setSpeechPlaybackState("playing");
-                    },
-                    onAudioDone: () => {
-                        setSpeechPreparing(false);
-                        setRealtimeSpeaking(false);
-                        setSpeechPlaybackState("idle");
-                    },
-                });
-
-                signal.throwIfAborted();
-                realtimeSessionRef.current = session;
-                realtimeModeRef.current = requestedMode;
-
-                setRealtimeSession(session);
-                setRealtimeDc(session.dc);
-
-                await waitForDataChannelOpen(session.dc);
-
-                return session;
-            })();
-
-            realtimeStartPromiseRef.current = startPromise;
-            try {
-                return await startPromise;
-            } finally {
-                if (realtimeStartPromiseRef.current === startPromise) realtimeStartPromiseRef.current = null;
-            }
-        };
+    const letCharacterSpeak = (hand: RaisedHand) => {
+        primeSpeechPlayback();
+        cancelSpeech();
+        void ensureGroup().letSpeak(hand.id, hand.teaser).catch((error) => {
+            if (!conversationAbortRef.current.signal.aborted) console.error("Could not give the floor:", error);
+        });
+    };
 
     const toggleMicrophone = async () => {
-        // This runs synchronously inside the user's tap and unlocks delayed TTS
+        // This runs synchronously inside the user's tap and unlocks delayed
         // playback on iPhone Safari.
         primeSpeechPlayback();
         const signal = conversationAbortRef.current.signal;
+        const group = ensureGroup();
+
+        if (microphoneEnabled) {
+            group.setMicrophoneMuted(true);
+            setMicrophoneEnabled(false);
+            return;
+        }
+
+        setMicrophoneConnecting(true);
         try {
-            const existingSession = realtimeSessionRef.current;
-
-            /*
-             * If the voice session has not been started yet,
-             * the first click starts it and leaves the microphone on.
-             */
-            if (
-                !existingSession ||
-                existingSession.pc?.connectionState === "closed" ||
-                realtimeModeRef.current !== "voice"
-            ) {
-                setMicrophoneConnecting(true);
-
-                try {
-                    const session = await startRealtimeIfNeeded(true);
-
-                    signal.throwIfAborted();
-                    setSessionMicrophoneEnabled(session, true);
-                    setMicrophoneEnabled(true);
-                } finally {
-                    if (!signal.aborted) setMicrophoneConnecting(false);
-                }
-
-                return;
-            }
-
-            const nextEnabled = !microphoneEnabled;
-
-            setSessionMicrophoneEnabled(
-                existingSession,
-                nextEnabled
-            );
-
-            setMicrophoneEnabled(nextEnabled);
+            await group.enableMicrophone();
+            if (!signal.aborted) setMicrophoneEnabled(true);
         } catch (error) {
             if (signal.aborted) return;
-            console.error(
-                "Could not toggle realtime microphone:",
-                error
-            );
-
+            console.error("Could not enable the microphone:", error);
             setMicrophoneEnabled(false);
+        } finally {
+            if (!signal.aborted) setMicrophoneConnecting(false);
         }
     };
 
@@ -1001,10 +883,6 @@ export default function Chat({
             sentenceCountRef.current = count;
         }
 
-        if (!realtimeDc || realtimeDc.readyState !== "open") {
-            return;
-        }
-
         const topicGuidance = topicToUse === FREE_CONVERSATION_TOPIC_ID
             ? "The user chose free conversation mode. Follow their interests and let them change subjects naturally. Do not steer them toward any particular topic."
             : `TOPIC FOCUS: ${getTopicInstructions(topicToUse)}\nGently guide the conversation toward this topic. Ask relevant questions and use appropriate vocabulary.\nIf the user goes off-topic, acknowledge their response briefly and guide back to the topic naturally.`;
@@ -1014,26 +892,16 @@ export default function Chat({
             ? "Speak slowly and clearly. Use a calm pace with small pauses between phrases."
             : "Speak at a natural conversational pace while remaining clear.";
 
-        realtimeDc.send(JSON.stringify({
-            type: "session.update",
-            session: {
-                type: "realtime",
-                output_modalities: ["audio"],
-                instructions: `
-You are a cheerful anime-style character on this website, helping users practice language skills.
-Answer naturally as the character.
-Do not say you are an AI model.
-Keep answers friendly and conversational.
-Always answer with no more than ${sentenceCountToUse} sentence${sentenceCountToUse === 1 ? "" : "s"}.
+        settingsRef.current = `
+Always answer with no more than ${sentenceCountToUse} sentence${sentenceCountToUse === 1 ? "" : "s"}, unless you were given the floor to jump in.
 Finish each sentence with normal sentence-ending punctuation. Do not use semicolons or run-on sentences to evade this limit.
 Each answer must contain useful conversational content, not only a short reaction such as "Great idea!" or "That sounds nice!".
 ${paceInstruction}
 Aim for approximately ${Math.round(speechRateToUse * 100)}% of a normal conversational speaking rate.
 
 ${topicGuidance}
-            `.trim(),
-            },
-        }));
+        `.trim();
+        groupRef.current?.updateSettings(settingsRef.current);
     };
 
     const set1sentence = () => updateRealtimeSession(1);
@@ -1060,7 +928,7 @@ ${topicGuidance}
             markTopicVisited(selectedTopic);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedTopic, realtimeDc]);
+    }, [selectedTopic]);
 
     //const [currentAnimation, setCurrentAnimation] =
     //    useState("Idle")
@@ -1141,19 +1009,16 @@ ${topicGuidance}
         setInput,
         loading,
         speakingText,
-    } = useChatLogic(realtimeDc, selectedTopic);
+    } = useChatLogic(null, selectedTopic);
 
     const displayedMessages = (loadedMessages ?? [...messages, ...realtimeMessages])
         .filter((message) => !(message.role === "user" && message.content.trim() === "..."));
-
-    const [realtimeSession, setRealtimeSession] =
-        useState<any>(null);
-    void realtimeSession;
 
     useEffect(() => {
         if (conversationAbortRef.current.signal.aborted) conversationAbortRef.current = new AbortController();
         return () => {
             conversationAbortRef.current.abort();
+            groupRef.current?.dispose();
             cancelSpeech();
         };
     }, []);
@@ -1172,11 +1037,12 @@ ${topicGuidance}
             conversationAbortRef.current.abort();
             conversationAbortRef.current = new AbortController();
             cancelSpeech();
-            realtimeSessionRef.current = null;
-            realtimeStartPromiseRef.current = null;
-            realtimeModeRef.current = null;
-            setRealtimeSession(null);
-            setRealtimeDc(null);
+            groupRef.current?.dispose();
+            groupRef.current = null;
+            replyIdsRef.current.clear();
+            setAddressee("jenny");
+            setSpeakingId(null);
+            setHands([]);
             setMicrophoneEnabled(false);
             setMicrophoneConnecting(false);
             setRealtimeSpeaking(false);
@@ -1217,18 +1083,11 @@ ${topicGuidance}
             ]);*/
 
             try {
-                const session = await startRealtimeIfNeeded(false);
-                const dc = session.dc as RTCDataChannel;
-
-                await waitForDataChannelOpen(dc);
-
-                console.log("Sending typed text to Realtime:", text);
-
-                signal.throwIfAborted();
-                sendRealtimeText(dc, text);
+                primeSpeechPlayback();
+                await ensureGroup().sendText(text);
             } catch (error) {
                 if (signal.aborted) return;
-                console.error("Could not send typed realtime message:", error);
+                console.error("Could not send typed group message:", error);
 
                 setRealtimeMessages((prev) => [
                     ...prev,
@@ -1257,7 +1116,7 @@ ${topicGuidance}
     useEffect(() => subscribeSpeechPlayback(setSpeechPlaybackState), []);
 
     const toggleSpeechPlayback = () => {
-        const realtimeAudio = realtimeSessionRef.current?.audioEl as HTMLAudioElement | undefined;
+        const realtimeAudio = groupRef.current?.speakingAudio();
         if (realtimeAudio?.srcObject) {
             if (speechPlaybackState === "playing") {
                 realtimeAudio.pause();
@@ -1345,36 +1204,22 @@ ${topicGuidance}
             {sceneStarted && (
                 <Suspense fallback={null}>
                     <LazySceneView
-                        isSpeaking={speakingText !== null || realtimeSpeaking}
+                        speakingId={speakingText !== null ? addressee : realtimeSpeaking ? speakingId : null}
+                        addresseeId={addressee}
                         expression={currentExpression}
-                        avatarUrl={AVATAR_URLS[avatar]}
                         onProgress={updateSceneLoadingProgress}
                     />
                 </Suspense>
             )}
 
-            <div className="avatarSwitcher" aria-label="Choose character">
-                <button
-                    type="button"
-                    className={avatar === "male" ? "isActive" : ""}
-                    onClick={() => selectAvatar("male")}
-                    aria-pressed={avatar === "male"}
-                >
-                    <span>Bob</span>
-                </button>
-                <button
-                    type="button"
-                    className={avatar === "jenny" ? "isActive" : ""}
-                    onClick={() => selectAvatar("jenny")}
-                    aria-pressed={avatar === "jenny"}
-                >
-                    <span>Jenny</span>
-                </button>
-            </div>
-
-            <div className="movementHint" aria-hidden="true">
-                Click the room, then use <span>WASD</span> or arrow keys to walk
-            </div>
+            <GroupBar
+                addressee={addressee}
+                speakingId={speakingId}
+                hands={hands}
+                onAddress={addressCharacter}
+                onLetSpeak={letCharacterSpeak}
+                onDismissHand={(id) => setHands((previous) => previous.filter((hand) => hand.id !== id))}
+            />
 
             <div className="audioControls" aria-label="Voice playback controls">
                 <button
@@ -1416,10 +1261,10 @@ ${topicGuidance}
                 </label>
             </div>
 
-            <ChatTranscript key={conversationVersion}
+            <ChatTranscript key={`transcript-${conversationVersion}`}
                 messages={displayedMessages}
                 loading={loading}
-                assistantName={avatar === "jenny" ? "Jenny" : "Bob"}
+                assistantName={CHARACTER_BY_ID[addressee].name}
             />
 
             {(gapWordsLoading || gapWordsError || gapWords.length > 0) && (
@@ -1473,13 +1318,14 @@ ${topicGuidance}
                 onResetProgress={resetProgress}
             />
 
-            <ChatInput key={conversationVersion}
+            <ChatInput key={`input-${conversationVersion}`}
                 input={input}
                 setInput={setInput}
                 sendMessage={sendTypedMessage}
                 microphoneEnabled={microphoneEnabled}
                 microphoneConnecting={microphoneConnecting}
                 toggleMicrophone={toggleMicrophone}
+                onFocusInput={() => void ensureGroup().connect(addressee).catch(() => {})}
             />
 
         </div>

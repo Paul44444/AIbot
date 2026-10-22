@@ -21,6 +21,10 @@ async function readRawBody(req: VercelRequest): Promise<string> {
     });
 }
 
+// Each group member speaks through their own session, because a session's
+// voice is fixed once it has produced audio.
+const VOICES = new Set(["marin", "ash", "cedar", "coral", "sage", "verse", "ballad", "alloy", "echo", "shimmer"]);
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method !== "POST") {
         return res.status(405).send("Method not allowed");
@@ -36,6 +40,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         );
     }
 
+    const requestedVoice = typeof req.query.voice === "string" ? req.query.voice : "";
+    const voice = VOICES.has(requestedVoice) ? requestedVoice : "marin";
+
     const fd = new FormData();
 
     fd.set("sdp", sdp);
@@ -50,7 +57,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 },
             },
             output: {
-                voice: "marin",
+                voice,
             },
         },
         instructions: `

@@ -2,6 +2,7 @@ import { startTransition, useCallback, useEffect, useRef, useState } from "react
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
+import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { GLTFLoader, type GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, type VRM } from "@pixiv/three-vrm";
 import {
@@ -9,30 +10,48 @@ import {
     createVRMAnimationClip,
 } from "@pixiv/three-vrm-animation";
 import CozyRoom, { BlobShadow } from "./CozyRoom";
+import { CHARACTERS, type Character as GroupMember, type CharacterId } from "../data/characters";
 
 type SceneViewProps = {
-    isSpeaking: boolean;
+    speakingId: CharacterId | null;
+    addresseeId: CharacterId;
     expression: string;
-    avatarUrl: string;
     onProgress: (progress: number) => void;
 };
 
-export default function SceneView({ isSpeaking, expression, avatarUrl, onProgress }: SceneViewProps) {
+// The group stands in a loose semicircle facing the default camera.
+const GROUP_CENTER = new THREE.Vector3(0, -2, 0);
+const TOWARD_CAMERA = new THREE.Vector3(1, 0, 1).normalize();
+const SCREEN_RIGHT = new THREE.Vector3(1, 0, -1).normalize();
+const SEATS: Record<CharacterId, { side: number; forward: number }> = {
+    bob: { side: -0.82, forward: 0.25 },
+    jenny: { side: 0, forward: 0 },
+    smyth: { side: 0.82, forward: 0.25 },
+};
+
+function seatPosition(id: CharacterId) {
+    const seat = SEATS[id];
+    return GROUP_CENTER.clone()
+        .addScaledVector(SCREEN_RIGHT, seat.side)
+        .addScaledVector(TOWARD_CAMERA, seat.forward);
+}
+
+export default function SceneView({ speakingId, addresseeId, expression, onProgress }: SceneViewProps) {
     const [roomReady, setRoomReady] = useState(false);
     const handleRoomReady = useCallback(() => setRoomReady(true), []);
-    const [readyAvatar, setReadyAvatar] = useState<string | null>(null);
-    const [avatarProgress, setAvatarProgress] = useState(0);
+    // Avatars load one after another so their setup never piles up on the main thread.
+    const [loadedIds, setLoadedIds] = useState<CharacterId[]>([]);
+    const handleAvatarReady = useCallback((id: CharacterId) => {
+        setLoadedIds((previous) => previous.includes(id) ? previous : [...previous, id]);
+    }, []);
+    const heads = useRef(new Map<CharacterId, THREE.Object3D>());
     const revealed = useRef(false);
 
     useEffect(() => {
-        onProgress(Math.min(0.96, 0.3 + avatarProgress * 0.66));
-    }, [avatarProgress, onProgress]);
+        onProgress(roomReady ? 0.4 + (loadedIds.length / CHARACTERS.length) * 0.6 : 0.3);
+    }, [roomReady, loadedIds, onProgress]);
 
-    useEffect(() => {
-        if (roomReady && readyAvatar === avatarUrl) onProgress(1);
-    }, [roomReady, readyAvatar, avatarUrl, onProgress]);
-
-    // Reveal the room as soon as it can render; the avatar joins whenever it is ready.
+    // Reveal the room as soon as it can render; the avatars join whenever they are ready.
     useEffect(() => {
         if (!roomReady || revealed.current) return;
         let revealTimer = 0;
@@ -54,37 +73,64 @@ export default function SceneView({ isSpeaking, expression, avatarUrl, onProgres
     }, [roomReady]);
 
     return (
-        <div
-            className="sceneView"
-            tabIndex={0}
-            aria-label="3D room. Click here, then use WASD or arrow keys to walk."
-            onPointerDownCapture={(event) => event.currentTarget.focus()}
-        >
+        <div className="sceneView" aria-label="3D room with the group">
             <Canvas
                 className="backgroundCanvas1"
                 dpr={[1, 1.25]}
-                camera={{ position: [0.5, -0.3, 0.5] }}
+                camera={{ position: [1.5, -0.5, 1.5] }}
                 // Nothing is drawn until shaders and textures are prepared without blocking.
                 frameloop={roomReady ? "always" : "never"}
             >
                 <ambientLight intensity={1.4} />
                 <DeferredRoom onReady={handleRoomReady} />
-                <Character
-                    isSpeaking={isSpeaking}
-                    expression={expression}
-                    avatarUrl={avatarUrl}
-                    onReady={setReadyAvatar}
-                    onProgress={setAvatarProgress}
-                />
-                <OrbitControls
-                    target={[0, -0.25, 0]}
-                    enablePan
-                    enableZoom
-                    enableRotate
-                />
+                {CHARACTERS.map((character, index) => index <= loadedIds.length && (
+                    <Character
+                        key={character.id}
+                        character={character}
+                        isSpeaking={speakingId === character.id}
+                        isAddressed={addresseeId === character.id}
+                        speakingId={speakingId}
+                        expression={speakingId === character.id ? expression : "relaxed"}
+                        heads={heads.current}
+                        onReady={handleAvatarReady}
+                    />
+                ))}
+                <OrbitControls makeDefault enablePan enableZoom enableRotate />
+                <CameraRig />
             </Canvas>
         </div>
     );
+}
+
+/** Frames the whole group for the current screen shape; the user can still orbit afterwards. */
+function CameraRig() {
+    const { camera, size, controls } = useThree();
+
+    useEffect(() => {
+        const perspective = camera as THREE.PerspectiveCamera;
+        const aspect = size.width / size.height;
+        // A longer lens frames the group waist-up; portrait screens need a wider one.
+        perspective.fov = aspect < 1 ? 62 : 40;
+        perspective.updateProjectionMatrix();
+        const halfWidth = Math.tan(THREE.MathUtils.degToRad(perspective.fov / 2)) * aspect;
+        // Keep about 3.8 m of the group in view, as far as the room allows.
+        const distance = THREE.MathUtils.clamp(1.9 / halfWidth, 1.6, 4.2);
+        const target = GROUP_CENTER.clone().add(new THREE.Vector3(0, 1.35, 0));
+        // On wide screens the transcript covers the left quarter; shift the group right.
+        if (size.width >= 900) target.addScaledVector(SCREEN_RIGHT, -0.42);
+        // On phones the transcript covers the upper half; aim higher so the group sits below it.
+        if (aspect < 1) target.y += 0.65;
+        camera.position.copy(target).addScaledVector(TOWARD_CAMERA, distance).add(new THREE.Vector3(0, 0.1, 0));
+        const orbit = controls as OrbitControlsImpl | null;
+        if (orbit) {
+            orbit.target.copy(target);
+            orbit.update();
+        } else {
+            camera.lookAt(target);
+        }
+    }, [camera, size.width, size.height, controls]);
+
+    return null;
 }
 
 const nextIdleSlot = () => new Promise<void>((resolve) => {
@@ -169,76 +215,37 @@ function loadIdleAnimation() {
 }
 
 function Character({
+    character,
     isSpeaking,
+    isAddressed,
+    speakingId,
     expression,
-    avatarUrl,
+    heads,
     onReady,
-    onProgress,
-}: Omit<SceneViewProps, "onProgress"> & {
-    onReady: (url: string) => void;
-    onProgress: (progress: number) => void;
+}: {
+    character: GroupMember;
+    isSpeaking: boolean;
+    isAddressed: boolean;
+    speakingId: CharacterId | null;
+    expression: string;
+    heads: Map<CharacterId, THREE.Object3D>;
+    onReady: (id: CharacterId) => void;
 }) {
     const group = useRef<THREE.Group>(null);
     const [vrm, setVrm] = useState<VRM | null>(null);
     const mixerRef = useRef<THREE.AnimationMixer | null>(null);
-    const pressedKeysRef = useRef(new Set<string>());
-    const movingRef = useRef(false);
-    const movementVectorRef = useRef(new THREE.Vector2());
-    const { size, gl, camera, scene } = useThree();
-    // The previous avatar stays visible while the next one loads, so pose it by its own URL.
-    const shownAvatarUrl: string = vrm?.scene.userData.loadedAvatarUrl ?? avatarUrl;
-    const isJenny = shownAvatarUrl.endsWith("/jenny.vrm");
-    const characterX = size.width >= 700 && size.width < 1300
-        ? THREE.MathUtils.clamp((1300 - size.width) / 1000, 0, 0.6)
-        : 0;
-    const characterRotationY = Math.PI + 1 + (isJenny ? Math.PI : 0);
-    const characterScale = isJenny ? 1.12 : 1;
-
-    useEffect(() => {
-        if (vrm?.scene.userData.loadedAvatarUrl === avatarUrl) onReady(avatarUrl);
-    }, [vrm, avatarUrl, onReady]);
-
-    useEffect(() => {
-        const updateKey = (event: KeyboardEvent, pressed: boolean) => {
-            const target = event.target as HTMLElement | null;
-            if (target?.matches("input, textarea, select") || target?.isContentEditable) return;
-
-            const keyByCode: Record<string, string> = {
-                KeyW: "w", KeyA: "a", KeyS: "s", KeyD: "d",
-                ArrowUp: "arrowup", ArrowLeft: "arrowleft",
-                ArrowDown: "arrowdown", ArrowRight: "arrowright",
-            };
-            const key = keyByCode[event.code] ?? event.key.toLowerCase();
-            if (!["w", "a", "s", "d", "arrowup", "arrowleft", "arrowdown", "arrowright"].includes(key)) return;
-
-            event.preventDefault();
-            if (pressed) pressedKeysRef.current.add(key);
-            else pressedKeysRef.current.delete(key);
-        };
-        const keyDown = (event: KeyboardEvent) => updateKey(event, true);
-        const keyUp = (event: KeyboardEvent) => updateKey(event, false);
-        const clearKeys = () => pressedKeysRef.current.clear();
-
-        window.addEventListener("keydown", keyDown);
-        window.addEventListener("keyup", keyUp);
-        window.addEventListener("blur", clearKeys);
-        return () => {
-            window.removeEventListener("keydown", keyDown);
-            window.removeEventListener("keyup", keyUp);
-            window.removeEventListener("blur", clearKeys);
-        };
-    }, []);
+    const { gl, camera, scene } = useThree();
+    const position = useRef(seatPosition(character.id)).current;
+    const scale = character.id === "jenny" ? 1.12 : 1;
 
     useEffect(() => {
         let cancelled = false;
         const loader = new GLTFLoader();
         loader.register((parser) => new VRMLoaderPlugin(parser));
-        onProgress(0.04);
 
-        loader.load(avatarUrl, async (gltf) => {
+        loader.load(character.avatarUrl, async (gltf) => {
             const loadedVrm = gltf.userData.vrm as VRM;
             if (cancelled) return;
-            loadedVrm.scene.userData.loadedAvatarUrl = avatarUrl;
             // The avatar is always on screen; culling it only makes three.js skin
             // every vertex on the CPU to compute bounding spheres.
             loadedVrm.scene.traverse((object) => {
@@ -257,7 +264,8 @@ function Character({
                 const animation = (await loadIdleAnimation()).userData.vrmAnimations?.[0];
                 if (animation) {
                     mixer = new THREE.AnimationMixer(loadedVrm.scene);
-                    mixer.clipAction(createVRMAnimationClip(animation, loadedVrm)).play();
+                    // Offset the clip so the group does not breathe in unison.
+                    mixer.clipAction(createVRMAnimationClip(animation, loadedVrm)).play().time = Math.random() * 3;
                     mixer.update(0);
                     loadedVrm.update(0);
                     // Let hair and clothes start from the idle pose instead of swinging into it.
@@ -275,72 +283,73 @@ function Character({
             }
             if (cancelled) return;
 
-            mixerRef.current?.stopAllAction();
             mixerRef.current = mixer;
-            onProgress(1);
+            const head = loadedVrm.humanoid.getRawBoneNode("head");
+            if (head) heads.set(character.id, head);
             setVrm(loadedVrm);
-        }, (event) => {
-            if (!cancelled && event.lengthComputable && event.total > 0) {
-                onProgress(Math.min(0.96, 0.04 + (event.loaded / event.total) * 0.92));
-            }
-        }, (error) => console.error(`Failed to load avatar ${avatarUrl}:`, error));
+            onReady(character.id);
+        }, undefined, (error) => {
+            console.error(`Failed to load ${character.name}:`, error);
+            // Let the next avatar load anyway.
+            if (!cancelled) onReady(character.id);
+        });
 
         return () => {
             cancelled = true;
+            heads.delete(character.id);
         };
         // gl, camera and scene are stable for the canvas' lifetime.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [avatarUrl, onProgress]);
+    }, [character, heads, onReady]);
+
+    const lookTarget = useRef(new THREE.Vector3());
+    const speakerPosition = useRef(new THREE.Vector3());
 
     useFrame((_, delta) => {
-        if (!vrm) return;
-        const character = group.current;
+        if (!vrm || !group.current) return;
         const time = performance.now() / 1000;
 
-        if (character) {
-            const keys = pressedKeysRef.current;
-            const moveX = Number(keys.has("d") || keys.has("arrowright")) - Number(keys.has("a") || keys.has("arrowleft"));
-            const moveZ = Number(keys.has("s") || keys.has("arrowdown")) - Number(keys.has("w") || keys.has("arrowup"));
-            movingRef.current = moveX !== 0 || moveZ !== 0;
+        // Listeners turn toward whoever is talking; otherwise everyone faces the user.
+        const speakerHead = speakingId && speakingId !== character.id ? heads.get(speakingId) : null;
+        const towardCamera = Math.atan2(camera.position.x - position.x, camera.position.z - position.z);
+        let yaw = towardCamera;
+        if (speakerHead) {
+            speakerHead.getWorldPosition(speakerPosition.current);
+            const towardSpeaker = Math.atan2(speakerPosition.current.x - position.x, speakerPosition.current.z - position.z);
+            const difference = Math.atan2(Math.sin(towardSpeaker - towardCamera), Math.cos(towardSpeaker - towardCamera));
+            yaw = towardCamera + difference * 0.55;
+        }
+        // VRM 0.x models face -Z, VRM 1.0 models face +Z.
+        if (vrm.meta.metaVersion === "0") yaw += Math.PI;
+        const current = group.current.rotation.y;
+        const turn = Math.atan2(Math.sin(yaw - current), Math.cos(yaw - current));
+        group.current.rotation.y = current + turn * (1 - Math.exp(-4 * delta));
 
-            if (movingRef.current) {
-                const direction = movementVectorRef.current.set(moveX, moveZ).normalize();
-                character.position.x = THREE.MathUtils.clamp(character.position.x + direction.x * 1.1 * delta, -1.2, 1.8);
-                character.position.z = THREE.MathUtils.clamp(character.position.z + direction.y * 1.1 * delta, -1.4, 1.2);
-                const facingOffset = 1 + (isJenny ? Math.PI : 0);
-                character.rotation.y = THREE.MathUtils.lerp(
-                    character.rotation.y,
-                    Math.atan2(direction.x, direction.y) + facingOffset,
-                    1 - Math.exp(-12 * delta)
-                );
-            }
+        if (vrm.lookAt) {
+            if (speakerHead) lookTarget.current.copy(speakerPosition.current);
+            else camera.getWorldPosition(lookTarget.current);
+            vrm.lookAt.lookAt(lookTarget.current);
         }
 
         vrm.expressionManager?.setValue("aa", isSpeaking
             ? 0.15 + 0.65 * Math.abs(Math.sin(time * 10))
             : 0);
-        vrm.expressionManager?.setValue("blink", Math.sin(time * 3) > 0.97 ? 1 : 0);
+        vrm.expressionManager?.setValue("blink", Math.sin(time * 3 + position.x * 5) > 0.97 ? 1 : 0);
 
         for (const name of ["happy", "sad", "angry", "relaxed", "Surprised"]) {
             vrm.expressionManager?.setValue(name, 0);
         }
-        vrm.expressionManager?.setValue(expression, expression === "relaxed" ? 0.2 : expression === "happy" ? 0.5 : 1);
+        // The addressed friend looks a little more attentive.
+        vrm.expressionManager?.setValue(expression, expression === "relaxed" ? (isAddressed ? 0.35 : 0.2) : expression === "happy" ? 0.5 : 1);
 
         mixerRef.current?.update(delta);
-        if (movingRef.current) {
-            const stride = Math.sin(time * 9) * 0.34;
-            vrm.humanoid.getNormalizedBoneNode("leftUpperLeg")?.rotateX(stride);
-            vrm.humanoid.getNormalizedBoneNode("rightUpperLeg")?.rotateX(-stride);
-            vrm.humanoid.getNormalizedBoneNode("leftUpperArm")?.rotateX(-stride * 0.65);
-            vrm.humanoid.getNormalizedBoneNode("rightUpperArm")?.rotateX(stride * 0.65);
-        }
         vrm.update(delta);
     });
 
     if (!vrm) return null;
     return (
-        <group ref={group} rotation={[0, characterRotationY, 0]} position={[characterX, -2, 0]}>
-            <primitive object={vrm.scene} scale={characterScale} />
+        <group ref={group} position={position}>
+            <primitive object={vrm.scene} scale={scale} />
             <BlobShadow size={0.9} />
         </group>
     );
