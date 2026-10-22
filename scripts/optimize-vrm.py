@@ -1,12 +1,14 @@
 """Shrink a VRM (glTF binary) without touching its rig, expressions or spring bones.
 
-- PNG textures become WebP via EXT_texture_webp (resolution is kept).
+- PNG textures become WebP via EXT_texture_webp (resolution is kept, unless
+  --max-size is given: then larger textures, WebP ones too, are downscaled so
+  the GPU upload on first render stays short).
 - The VRM thumbnail is downscaled; it is never shown on the site.
 - Dense morph targets become sparse accessors that only store moved vertices.
 
 All VRM extension JSON stays as it is; only images and accessors are rewritten.
 
-usage: python3 -I scripts/optimize-vrm.py input.vrm output.vrm
+usage: python3 -I scripts/optimize-vrm.py input.vrm output.vrm [--max-size 1024]
 """
 
 import io
@@ -48,7 +50,8 @@ def thumbnail_images(gltf):
     textures = []
     vrm0 = gltf.get("extensions", {}).get("VRM", {}).get("meta", {})
     if isinstance(vrm0.get("texture"), int) and vrm0["texture"] >= 0:
-        textures.append(gltf["textures"][vrm0["texture"]]["source"])
+        texture = gltf["textures"][vrm0["texture"]]
+        textures.append(texture.get("source", texture.get("extensions", {}).get("EXT_texture_webp", {}).get("source")))
     vrm1 = gltf.get("extensions", {}).get("VRMC_vrm", {}).get("meta", {})
     images = set(textures)
     if isinstance(vrm1.get("thumbnailImage"), int):
@@ -56,11 +59,13 @@ def thumbnail_images(gltf):
     return images
 
 
-def encode_webp(image_bytes, is_thumbnail, is_normal_map):
+def encode_webp(image_bytes, is_thumbnail, is_normal_map, max_size=None):
     image = Image.open(io.BytesIO(image_bytes))
     image.load()
     if is_thumbnail:
         image.thumbnail((THUMBNAIL_SIZE, THUMBNAIL_SIZE))
+    elif max_size:
+        image.thumbnail((max_size, max_size), Image.LANCZOS)
     if image.mode not in ("RGB", "RGBA"):
         image = image.convert("RGBA" if "A" in image.mode or "transparency" in image.info else "RGB")
     out = io.BytesIO()
@@ -69,7 +74,7 @@ def encode_webp(image_bytes, is_thumbnail, is_normal_map):
     return out.getvalue()
 
 
-def main(source, target):
+def main(source, target, max_size=None):
     gltf, binary = read_glb(source)
     views = gltf["bufferViews"]
     accessors = gltf["accessors"]
@@ -87,12 +92,15 @@ def main(source, target):
     thumbnails = thumbnail_images(gltf)
     webp_images = set()
     for index, image in enumerate(gltf.get("images", [])):
-        if image.get("mimeType") != "image/png" or "bufferView" not in image:
+        if "bufferView" not in image:
+            continue
+        original = contents[image["bufferView"]]
+        too_large = max_size and max(Image.open(io.BytesIO(original)).size) > max_size
+        if image.get("mimeType") != "image/png" and not too_large:
             continue
         name = (image.get("name") or "").lower()
-        original = contents[image["bufferView"]]
-        webp = encode_webp(original, index in thumbnails, name.endswith("_nml") or "normal" in name)
-        if len(webp) < len(original):
+        webp = encode_webp(original, index in thumbnails, name.endswith("_nml") or "normal" in name, max_size)
+        if too_large or len(webp) < len(original):
             contents[image["bufferView"]] = webp
             image["mimeType"] = "image/webp"
             webp_images.add(index)
@@ -187,4 +195,6 @@ def main(source, target):
 
 
 if __name__ == "__main__":
-    main(*sys.argv[1:3])
+    args = sys.argv[1:]
+    size = int(args[args.index("--max-size") + 1]) if "--max-size" in args else None
+    main(args[0], args[1], size)

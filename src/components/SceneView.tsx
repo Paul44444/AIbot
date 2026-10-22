@@ -23,11 +23,13 @@ import {
     ROOM_ORDER,
     FRONT_DOOR,
     PCS,
+    WALL_GAP,
     SEATS,
     insideHouse,
     roomAt,
 } from "./roomLayout";
 import MonitorFeed from "./MonitorFeed";
+import { sceneVisibility } from "./sceneVisibility";
 import Outdoors, { OUTSIDE_START, SKY_HORIZON } from "./outdoor/Outdoors";
 import { heightAt } from "./outdoor/world";
 import { CHARACTER_BY_ID, type Character as GroupMember, type CharacterId } from "../data/characters";
@@ -70,7 +72,6 @@ function stepIndex(kind: "room" | "avatar", id: CharacterId) {
 
 export default function SceneView({ speakingId, addresseeId, expression, onProgress, onNavigate, focusPcId, onFocusPc, onOpenYouTube, outside, onOutsideChange }: SceneViewProps) {
     const [settledKey, setSettledKey] = useState<string | null>(null);
-    const walkingOutside = settledKey === "outside";
     const [step, setStep] = useState(0);
     const finishStep = useCallback((index: number) => {
         setStep((current) => current === index ? current + 1 : current);
@@ -80,8 +81,17 @@ export default function SceneView({ speakingId, addresseeId, expression, onProgr
     // (or right away when someone goes outside earlier), and grows when walked in.
     const [outdoorsMounted, setOutdoorsMounted] = useState(false);
     const everyoneLoaded = step >= LOAD_STEPS.length;
-    useEffect(() => { if (outside || everyoneLoaded) setOutdoorsMounted(true); }, [outside, everyoneLoaded]);
+    useEffect(() => {
+        if (outside) return setOutdoorsMounted(true);
+        if (!everyoneLoaded) return;
+        // A pause after the last resident appeared, so their first frames stay smooth.
+        const timer = window.setTimeout(() => setOutdoorsMounted(true), 2500);
+        return () => window.clearTimeout(timer);
+    }, [outside, everyoneLoaded]);
     const revealed = useRef(false);
+    // Lowered by AdaptiveResolution on slow GPUs. It lives here: the canvas applies
+    // its dpr prop on every render and would undo a change made from inside.
+    const [dpr, setDpr] = useState(1);
 
     useEffect(() => {
         onProgress(0.3 + (step / LOAD_STEPS.length) * 0.7);
@@ -112,7 +122,10 @@ export default function SceneView({ speakingId, addresseeId, expression, onProgr
         <div className="sceneView" aria-label="3D rooms of the group">
             <Canvas
                 className="backgroundCanvas1"
-                dpr={[1, 1.25]}
+                // Smoothness over sharpness: no multisampling (about a third of the GPU
+                // time on integrated graphics), and the resolution adapts (AdaptiveResolution).
+                dpr={dpr}
+                gl={{ antialias: false, powerPreference: "high-performance" }}
                 camera={{ position: [1.5, -0.5, 1.5], fov: 40 }}
                 // Nothing is drawn until shaders and textures are prepared without blocking.
                 frameloop={roomReady ? "always" : "never"}
@@ -143,8 +156,7 @@ export default function SceneView({ speakingId, addresseeId, expression, onProgr
                         return (
                             <DeferredRoom
                                 key={`room-${loadStep.id}`}
-                                // Jenny's room stays: the open front door looks into it.
-                                hidden={walkingOutside && loadStep.id !== "jenny"}
+                                id={loadStep.id}
                                 onReady={() => finishStep(index)}
                             >
                                 {ROOMS[loadStep.id]()}
@@ -160,7 +172,6 @@ export default function SceneView({ speakingId, addresseeId, expression, onProgr
                             expression={speakingId === loadStep.id ? expression : "relaxed"}
                             onReady={() => finishStep(index)}
                             onSelect={onNavigate}
-                            hidden={walkingOutside}
                         />
                     );
                 })}
@@ -179,12 +190,97 @@ export default function SceneView({ speakingId, addresseeId, expression, onProgr
                         onOpenYouTube={onOpenYouTube}
                     />
                 ))}
+                <VisibilityControl outside={outside} />
+                <AdaptiveResolution onChange={setDpr} />
+                <FirstDraws />
                 <FrontDoor open={outside} onOpen={() => onOutsideChange(true)} />
                 {outdoorsMounted && <Outdoors active={settledKey === "outside"} onReachDoor={() => onOutsideChange(false)} />}
                 <CameraRig roomId={addresseeId} focusPcId={focusPcId} outside={outside} onSettled={setSettledKey} />
             </Canvas>
         </div>
     );
+}
+
+/**
+ * Keeps the frame rate up on weak GPUs: renders at a lower resolution when
+ * frames stay slow. Every change reallocates the canvas (a long stall), so it
+ * waits until loading is over, needs two slow three-second windows in a row,
+ * only ever goes down and does so at most twice.
+ */
+function AdaptiveResolution({ onChange }: { onChange: (dpr: number) => void }) {
+    const window_ = useRef({ start: 0, frames: 0, slow: 0, dpr: 1, since: performance.now() });
+
+    useFrame(() => {
+        const now = performance.now();
+        const current = window_.current;
+        if (now - current.since < 15000 || current.dpr <= 0.6) return;
+        if (!current.start) current.start = now;
+        current.frames++;
+        if (now - current.start < 3000) return;
+        const frameTime = (now - current.start) / current.frames;
+        current.start = now;
+        current.frames = 0;
+        current.slow = frameTime > 28 ? current.slow + 1 : 0;
+        if (current.slow < 2) return;
+        current.slow = 0;
+        current.dpr = current.dpr > 0.8 ? 0.8 : 0.6;
+        onChange(current.dpr);
+    });
+
+    return null;
+}
+
+// Walls hide everything except through doorways, so a neighbouring room is drawn
+// (and its resident animated) only while a doorway to it is in view.
+
+const doorwayBoxes = DOORWAYS.map((doorway) => ({
+    doorway,
+    box: new THREE.Box3(
+        new THREE.Vector3(doorway.x - WALL_GAP, FLOOR_Y, DOORWAY_Z - DOORWAY_WIDTH / 2),
+        new THREE.Vector3(doorway.x + WALL_GAP, FLOOR_Y + DOORWAY_HEIGHT, DOORWAY_Z + DOORWAY_WIDTH / 2),
+    ),
+}));
+const frontDoorBox = new THREE.Box3(
+    new THREE.Vector3(FRONT_DOOR.x - DOORWAY_WIDTH / 2, FLOOR_Y, ROOM_BOUNDS.jenny.maxZ - 0.05),
+    new THREE.Vector3(FRONT_DOOR.x + DOORWAY_WIDTH / 2, FLOOR_Y + DOORWAY_HEIGHT, ROOM_BOUNDS.jenny.maxZ + WALL_GAP + 0.05),
+);
+
+function VisibilityControl({ outside }: { outside: boolean }) {
+    const { camera, scene } = useThree();
+    // An auto-updating root recomputes every world matrix in the scene each
+    // frame. Only things that move update themselves (avatars, doors, camera).
+    useEffect(() => {
+        scene.matrixAutoUpdate = false;
+        scene.updateMatrix();
+    }, [scene]);
+    const frustum = useMemo(() => new THREE.Frustum(), []);
+    const matrix = useMemo(() => new THREE.Matrix4(), []);
+
+    // Runs before everything that reads the result.
+    useFrame(() => {
+        camera.updateMatrixWorld();
+        frustum.setFromProjectionMatrix(matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+        const rooms = sceneVisibility.rooms;
+        rooms.clear();
+        const here = roomAt(camera.position.x, camera.position.z);
+        const frontDoorInView = frustum.intersectsBox(frontDoorBox);
+        if (here) {
+            rooms.add(here);
+            for (const { doorway, box } of doorwayBoxes) {
+                if ((doorway.west === here || doorway.east === here) && frustum.intersectsBox(box)) {
+                    rooms.add(doorway.west === here ? doorway.east : doorway.west);
+                }
+            }
+        } else if (insideHouse(camera.position.x, camera.position.z)) {
+            // In a doorway between rooms (e.g. during a flight): show everything.
+            for (const id of ROOM_ORDER) rooms.add(id);
+        } else if (frontDoorInView) {
+            rooms.add("jenny");
+        }
+        sceneVisibility.outdoors = !here || (outside && here === "jenny" && frontDoorInView);
+    }, -1);
+
+    return null;
 }
 
 const easeInOut = (t: number) => t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
@@ -557,26 +653,84 @@ async function prepareForRender(gl: THREE.WebGLRenderer, object: THREE.Object3D,
     }
 }
 
+// The first draw of a mesh uploads its vertex buffers and its morph-target and
+// bone textures. For a whole avatar at once that freezes a frame for half a
+// second, so each mesh is drawn once beforehand, one per frame, into a single
+// pixel that the regular frame paints over right after.
+const WARM_LAYER = 31;
+const firstDraws: { mesh: THREE.Object3D; root: THREE.Object3D; done?: () => void }[] = [];
+
+/** Resolves once every mesh under `root` has been drawn once. Its meshes must not be frustum culled. */
+function drawEachMeshOnce(root: THREE.Object3D) {
+    const meshes: THREE.Object3D[] = [];
+    root.traverse((object) => { if ((object as THREE.Mesh).isMesh && object.visible) meshes.push(object); });
+    return new Promise<void>((resolve) => {
+        if (!meshes.length) return resolve();
+        meshes.forEach((mesh, index) => firstDraws.push({ mesh, root, done: index === meshes.length - 1 ? resolve : undefined }));
+    });
+}
+
+function FirstDraws() {
+    const { gl, scene, camera } = useThree();
+    const scissor = useMemo(() => new THREE.Vector4(), []);
+    useFrame(() => {
+        const next = firstDraws.shift();
+        if (!next) return;
+        const { mesh, root } = next;
+        const detached = !root.parent;
+        if (detached) scene.add(root);
+        // Same lights as always, so the draw uses the programs that were compiled.
+        for (const child of scene.children) if ((child as THREE.Light).isLight) child.layers.enable(WARM_LAYER);
+        mesh.layers.enable(WARM_LAYER);
+        const layers = camera.layers.mask;
+        camera.layers.set(WARM_LAYER);
+        gl.getScissor(scissor);
+        const scissorTest = gl.getScissorTest();
+        gl.setScissorTest(true);
+        gl.setScissor(0, 0, 1, 1);
+        gl.render(scene, camera);
+        gl.setScissor(scissor);
+        gl.setScissorTest(scissorTest);
+        camera.layers.mask = layers;
+        mesh.layers.disable(WARM_LAYER);
+        if (detached) scene.remove(root);
+        next.done?.();
+    });
+    return null;
+}
+
 /** Builds a room as a transition, so React yields to typing while creating it. */
-function DeferredRoom({ onReady, hidden, children }: { onReady: () => void; hidden: boolean; children: ReactNode }) {
+function DeferredRoom({ id, onReady, children }: { id: CharacterId; onReady: () => void; children: ReactNode }) {
     const [show, setShow] = useState(false);
     const room = useRef<THREE.Group>(null);
     useEffect(() => startTransition(() => setShow(true)), []);
+    useFrame(() => {
+        if (room.current) room.current.visible = sceneVisibility.rooms.has(id);
+    });
     if (!show) return null;
     return (
         <>
-            <group ref={room} visible={!hidden}>{children}</group>
-            <RoomWarmUp room={room} onReady={onReady} />
+            <group ref={room}>{children}</group>
+            {/* The first room also prepares what stands outside any room (door, hotspots). */}
+            <RoomWarmUp room={room} wholeScene={id === "jenny"} onReady={onReady} />
         </>
     );
 }
 
-function RoomWarmUp({ room, onReady }: { room: RefObject<THREE.Group | null>; onReady: () => void }) {
+function RoomWarmUp({ room, wholeScene, onReady }: { room: RefObject<THREE.Group | null>; wholeScene: boolean; onReady: () => void }) {
     const { gl, scene, camera } = useThree();
 
     useEffect(() => {
         let cancelled = false;
-        void prepareForRender(gl, room.current ?? scene, camera, scene)
+        // Nothing in a room moves: compute its matrices once and leave it out of
+        // the per-frame matrix update from now on.
+        const group = room.current;
+        if (group) {
+            group.traverse((object) => { object.matrixAutoUpdate = false; });
+            group.updateMatrixWorld(true);
+            group.matrixWorldAutoUpdate = false;
+        }
+        void prepareForRender(gl, wholeScene ? scene : room.current ?? scene, camera, scene)
             .catch((error) => console.error("Room warm-up failed:", error))
             .then(() => { if (!cancelled) onReady(); });
         return () => { cancelled = true; };
@@ -614,7 +768,6 @@ function Character({
     expression,
     onReady,
     onSelect,
-    hidden,
 }: {
     character: GroupMember;
     isSpeaking: boolean;
@@ -622,10 +775,9 @@ function Character({
     expression: string;
     onReady: () => void;
     onSelect: (id: CharacterId) => void;
-    /** Out of sight while the user walks outside: not drawn, not animated. */
-    hidden: boolean;
 }) {
     const group = useRef<THREE.Group>(null);
+    const outer = useRef<THREE.Group>(null);
     const [vrm, setVrm] = useState<VRM | null>(null);
     const [hovered, setHovered] = useState(false);
     const mixerRef = useRef<THREE.AnimationMixer | null>(null);
@@ -684,6 +836,7 @@ function Character({
             }
             try {
                 await prepareForRender(gl, loadedVrm.scene, camera, scene);
+                if (!cancelled) await drawEachMeshOnce(loadedVrm.scene);
             } catch (error) {
                 console.error("Avatar warm-up failed:", error);
             }
@@ -710,7 +863,15 @@ function Character({
     const settled = useRef(false);
 
     useFrame((_, delta) => {
-        if (!vrm || !group.current || hidden) return;
+        if (!vrm || !group.current) return;
+        // Behind walls: neither drawn nor animated (skeleton, hair physics, matrices).
+        const inView = sceneVisibility.rooms.has(character.id);
+        if (outer.current) {
+            outer.current.visible = inView;
+            // Skips the skeleton's matrices too, not just drawing.
+            outer.current.matrixWorldAutoUpdate = inView;
+        }
+        if (!inView) return;
         const time = performance.now() / 1000;
 
         // Face the user when they are in this room; otherwise face the usual viewpoint.
@@ -762,7 +923,7 @@ function Character({
 
     if (!vrm) return null;
     return (
-        <group position={position} visible={!hidden}>
+        <group ref={outer} position={position}>
             <group ref={group}>
                 <primitive object={vrm.scene} scale={scale} />
             </group>

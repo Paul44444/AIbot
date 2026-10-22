@@ -12,6 +12,7 @@ import { CHUNK_SIZE, VIEW_RADIUS, WATER_LEVEL, blockedByTree, buildChunk, height
 export const SKY_HORIZON = "#d3e4ea";
 
 import { outdoorInput, outdoorState } from "./input";
+import { sceneVisibility } from "../sceneVisibility";
 
 /** Where you stand after stepping out of the front door, looking away from the house. */
 export const OUTSIDE_START = new THREE.Vector3(FRONT_DOOR.x, FLOOR_Y + 1.6, ROOM_BOUNDS.jenny.maxZ + WALL_GAP + 3.2);
@@ -136,8 +137,17 @@ function House() {
         return geometry;
     }, [roofGeometry]);
 
+    const house = useRef<THREE.Group>(null);
+    useEffect(() => {
+        const group = house.current;
+        if (!group) return;
+        group.traverse((object) => { object.matrixAutoUpdate = false; });
+        group.updateMatrixWorld(true);
+        group.matrixWorldAutoUpdate = false;
+    }, []);
+
     return (
-        <group>
+        <group ref={house}>
             {walls.map(({ face, length, center, doorX, windows, geometry }, index) => {
                 return (
                     <group key={index} position={center} rotation={[0, rotation[face.out], 0]}>
@@ -300,8 +310,9 @@ function Forest({ active, chunks }: { active: boolean; chunks: Map<string, Loade
         }
     });
 
+    // Tiles and instanced vegetation carry their own transforms; the group never moves.
     return (
-        <group ref={group}>
+        <group ref={group} matrixAutoUpdate={false}>
             <primitive object={parts.pines} />
             <primitive object={parts.leafy} />
             <primitive object={parts.rocks} />
@@ -512,14 +523,35 @@ function Walker({ active, chunks, onReachDoor }: { active: boolean; chunks: Map<
     return null;
 }
 
-/** Everything outside the house. Mounted on the first trip outside. */
+/**
+ * Everything outside the house. Mounted once the residents have loaded, with a
+ * few tiles in front of the door; drawn only when it can be seen.
+ */
 export default function Outdoors({ active, onReachDoor }: { active: boolean; onReachDoor: () => void }) {
     const chunks = useMemo(() => new Map<string, LoadedChunk>(), []);
+    const root = useRef<THREE.Group>(null);
+    const { gl, camera, scene } = useThree();
+
+    // Compile the forest's shaders in the background once the first tiles exist,
+    // so stepping outside does not stall on a synchronous compile.
+    useEffect(() => {
+        const timer = window.setTimeout(() => {
+            if (root.current) void gl.compileAsync(root.current, camera, scene).catch(() => {});
+        }, 1500);
+        return () => window.clearTimeout(timer);
+    }, [gl, camera, scene]);
+
+    useFrame(() => {
+        if (root.current) root.current.visible = sceneVisibility.outdoors;
+    });
+
     return (
         <>
-            <House />
-            <Forest active={active} chunks={chunks} />
-            <WaterAndSky />
+            <group ref={root} matrixAutoUpdate={false}>
+                <House />
+                <Forest active={active} chunks={chunks} />
+                <WaterAndSky />
+            </group>
             <Walker active={active} chunks={chunks} onReachDoor={onReachDoor} />
         </>
     );

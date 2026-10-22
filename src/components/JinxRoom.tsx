@@ -21,9 +21,8 @@ const ORANGE = "#ff9a3c";
 const STYLE = { color: "#5f5689", trim: "#2e2943", wainscot: false };
 
 export const JINX_LIGHTS = [
-    { position: [center(JINX).x, FLOOR_Y + HEIGHT - 0.5, center(JINX).z], color: "#ffd9bd", intensity: 4, distance: 9, decay: 1.2 },
-    // Neon glow above the gaming desk.
-    { position: [center(JINX).x - 0.3, FLOOR_Y + 1.9, JINX.minZ + 0.5], color: "#ff7fb0", intensity: 1.6, distance: 4, decay: 1.5 },
+    // A slightly pink tint stands in for the neon sign's glow.
+    { position: [center(JINX).x, FLOOR_Y + HEIGHT - 0.5, center(JINX).z], color: "#ffd0c8", intensity: 4.4, distance: 9, decay: 1.2 },
 ] as const;
 
 function makeNeonTexture() {

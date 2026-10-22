@@ -944,11 +944,13 @@ export function doorwayHole(bounds: Bounds, side: "west" | "east"): Hole {
 
 const JENNY = ROOM_BOUNDS.jenny;
 
-/** World positions of Jenny's lamps; lights for every room exist from the start. */
+/**
+ * Jenny's room light; lights for every room exist from the start. Each room has
+ * a single light: every material evaluates every light for every pixel, so the
+ * table lamp and fairy lights only glow.
+ */
 export const JENNY_LIGHTS = [
-    { position: [-1.0, FLOOR_Y + HEIGHT - 0.45, -1.6], color: "#ffd1a0", intensity: 5, distance: 10, decay: 1.2 },
-    { position: [JENNY.minX + 0.33, FLOOR_Y + 1.02, center(JENNY).z - 1.35], color: "#ffc489", intensity: 1.2, distance: 3, decay: 1.5 },
-    { position: [center(JENNY).x + 1.8, FLOOR_Y + 2.25, JENNY.minZ + 0.3], color: "#ffb870", intensity: 1.2, distance: 3, decay: 1.5 },
+    { position: [-1.0, FLOOR_Y + HEIGHT - 0.45, -1.6], color: "#ffcf9c", intensity: 5.6, distance: 11, decay: 1.2 },
 ] as const;
 
 export default function CozyRoom() {

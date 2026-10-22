@@ -22,9 +22,7 @@ const WALNUT = "#5c3b27";
 const STYLE = { color: "#c3d1c8", trim: "#4b3424", wainscot: true };
 
 export const SMYTH_LIGHTS = [
-    { position: [center(SMYTH).x, FLOOR_Y + HEIGHT - 0.5, center(SMYTH).z], color: "#fff0dc", intensity: 4, distance: 9, decay: 1.2 },
-    // Banker's lamp on the desk.
-    { position: [center(SMYTH).x - 0.2, FLOOR_Y + 1.15, SMYTH.minZ + 0.6], color: "#ffd9a0", intensity: 1.3, distance: 3, decay: 1.5 },
+    { position: [center(SMYTH).x, FLOOR_Y + HEIGHT - 0.5, center(SMYTH).z], color: "#ffecd2", intensity: 4.4, distance: 9, decay: 1.2 },
 ] as const;
 
 function makeChalkboardTexture() {
