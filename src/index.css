@@ -494,6 +494,50 @@ button:focus-visible {
     font-size: 13px;
     pointer-events: none;
 }
+.minimap {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    z-index: 25;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    pointer-events: none;
+}
+.minimap canvas {
+    border: 3px solid rgba(255, 255, 255, 0.85);
+    border-radius: 50%;
+    background: #2f6f98;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+.minimapDistance {
+    padding: 3px 10px;
+    border-radius: 999px;
+    color: white;
+    background: rgba(20, 23, 37, 0.8);
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.outdoorJump {
+    position: fixed;
+    right: 140px;
+    bottom: 205px;
+    z-index: 25;
+    width: 58px;
+    height: 58px;
+    border: 2px solid rgba(255, 255, 255, 0.55);
+    border-radius: 50%;
+    color: white;
+    background: rgba(20, 23, 37, 0.45);
+    font-size: 26px;
+    touch-action: none;
+}
+@media (max-width: 700px) {
+    .minimap { top: 236px; bottom: auto; right: 10px; }
+}
+
 .outdoorJoystick {
     position: fixed;
     right: 24px;

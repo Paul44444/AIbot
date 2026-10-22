@@ -27,6 +27,11 @@ const smoothstep = (edge0: number, edge1: number, x: number) => {
     return t * t * (3 - 2 * t);
 };
 
+/** Whether a point lies in dense forest (vs. meadow); also used for the minimap. */
+export function forestAt(x: number, z: number) {
+    return fbm(x * 0.02 + 5, z * 0.02 - 9, 2) > 0.05;
+}
+
 /** Ground height at a point: rolling hills, lake basins, flat around the house. */
 export function heightAt(x: number, z: number) {
     const hills = fbm(x * 0.011, z * 0.011, 4) * 7;
@@ -81,9 +86,8 @@ export function buildChunk(cx: number, cz: number): ChunkData {
             for (const tri of [[a, c, b], [b, c, d]]) {
                 const mid = (tri[0][1] + tri[1][1] + tri[2][1]) / 3;
                 const slope = Math.max(...tri.map((v) => v[1])) - Math.min(...tri.map((v) => v[1]));
-                const forest = fbm((tri[0][0]) * 0.02 + 5, (tri[0][2]) * 0.02 - 9, 2);
                 let color = GRASS[Math.floor(hash2(i + originX, j + originZ, 3) * GRASS.length)];
-                if (forest > 0.05) color = FOREST_FLOOR;
+                if (forestAt(tri[0][0], tri[0][2])) color = FOREST_FLOOR;
                 if (mid < WATER_LEVEL + 0.35) color = SHORE;
                 if (slope > step * 0.9) color = ROCK;
                 for (const v of tri) {
@@ -115,14 +119,14 @@ export function buildChunk(cx: number, cz: number): ChunkData {
                 if (y >= WATER_LEVEL + 0.1 && roll < 0.35) flowers.push({ x: wx, y, z: wz, scale: 0.8 + roll, rotation: roll * 6, variant: Math.floor(roll * 40) % 4 });
                 continue;
             }
-            const forest = fbm(wx * 0.02 + 5, wz * 0.02 - 9, 2);
-            const density = forest > 0.05 ? 0.78 : 0.12;
+            const dense = forestAt(wx, wz);
+            const density = dense ? 0.62 : 0.12;
             const instance = { x: wx, y, z: wz, scale: 0.75 + hash2(gx, gz, cx * 13 + cz) * 0.8, rotation: roll * Math.PI * 2, variant: 0 };
             if (roll < density) {
                 (hash2(gx + 3, gz + 5, cx - cz) < 0.62 ? pines : leafy).push(instance);
             } else if (roll < density + 0.05) {
                 rocks.push({ ...instance, scale: 0.4 + roll * 0.8 });
-            } else if (forest <= 0.05 && roll < density + 0.4) {
+            } else if (!dense && roll < density + 0.4) {
                 flowers.push({ ...instance, scale: 0.8 + roll * 0.5, variant: Math.floor(roll * 40) % 4 });
             }
         }
@@ -134,8 +138,9 @@ export function buildChunk(cx: number, cz: number): ChunkData {
 /** Trees in a tile block walking; a cheap radius check against nearby trunks. */
 export function blockedByTree(chunk: ChunkData | undefined, x: number, z: number) {
     if (!chunk) return false;
-    // Generous radii: closer than this a trunk fills the whole view.
-    for (const tree of chunk.pines) if (Math.hypot(tree.x - x, tree.z - z) < 0.75 + 0.2 * tree.scale) return true;
-    for (const tree of chunk.leafy) if (Math.hypot(tree.x - x, tree.z - z) < 0.8 + 0.25 * tree.scale) return true;
+    // A little more than the trunk, so it never fills the whole view, but the
+    // gaps between trees in dense forest stay walkable.
+    for (const tree of chunk.pines) if (Math.hypot(tree.x - x, tree.z - z) < 0.45 + 0.12 * tree.scale) return true;
+    for (const tree of chunk.leafy) if (Math.hypot(tree.x - x, tree.z - z) < 0.5 + 0.14 * tree.scale) return true;
     return false;
 }

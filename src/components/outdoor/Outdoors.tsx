@@ -11,7 +11,7 @@ import { CHUNK_SIZE, VIEW_RADIUS, WATER_LEVEL, blockedByTree, buildChunk, height
 
 export const SKY_HORIZON = "#d3e4ea";
 
-import { outdoorInput } from "./input";
+import { outdoorInput, outdoorState } from "./input";
 
 /** Where you stand after stepping out of the front door, looking away from the house. */
 export const OUTSIDE_START = new THREE.Vector3(FRONT_DOOR.x, FLOOR_Y + 1.6, ROOM_BOUNDS.jenny.maxZ + WALL_GAP + 3.2);
@@ -349,15 +349,24 @@ function WaterAndSky() {
     );
 }
 
+const EYE_HEIGHT = 1.6;
+const GRAVITY = 14;
+const JUMP_SPEED = 5.2;
+/** Deeper than this you swim, with your head just above the surface. */
+const SWIM_DEPTH = 1.1;
+
 /**
- * First-person walking: WASD or arrows (Shift runs), drag to look, joystick on
- * touch screens. Follows the ground; the house, trees and deep water block.
+ * First-person walking: WASD or arrows (Shift runs), Space jumps, drag to look,
+ * joystick on touch screens. Follows the ground; the house and tree trunks
+ * block, and in deep water you swim.
  */
 function Walker({ active, chunks, onReachDoor }: { active: boolean; chunks: Map<string, LoadedChunk>; onReachDoor: () => void }) {
     const { camera, gl } = useThree();
     const keys = useRef(new Set<string>());
     const look = useRef({ yaw: 0, pitch: 0, ready: false });
     const doorReported = useRef(false);
+    // Vertical motion for jumps: speed and whether we stand on something.
+    const fall = useRef({ speed: 0, grounded: true });
 
     useEffect(() => {
         if (!active) {
@@ -370,6 +379,11 @@ function Walker({ active, chunks, onReachDoor }: { active: boolean; chunks: Map<
         const down = (event: KeyboardEvent) => {
             if (typing(event)) return;
             const key = event.key.toLowerCase();
+            if (key === " ") {
+                event.preventDefault();
+                if (!event.repeat) outdoorInput.jump = true;
+                return;
+            }
             if (["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright", "shift"].includes(key)) {
                 keys.current.add(key);
                 if (key.startsWith("arrow")) event.preventDefault();
@@ -420,7 +434,10 @@ function Walker({ active, chunks, onReachDoor }: { active: boolean; chunks: Map<
         let side = Number(pressed.has("d") || pressed.has("arrowright")) - Number(pressed.has("a") || pressed.has("arrowleft")) + outdoorInput.x;
         const length = Math.hypot(ahead, side);
         if (length > 1) { ahead /= length; side /= length; }
-        const speed = (pressed.has("shift") ? 7 : 3.4) * Math.min(delta, 0.05);
+        const step = Math.min(delta, 0.05);
+        const ground = heightAt(camera.position.x, camera.position.z);
+        const swimming = ground < WATER_LEVEL - SWIM_DEPTH;
+        const speed = (swimming ? 1.8 : pressed.has("shift") ? 7 : 3.4) * step;
 
         forward.set(-Math.sin(look.current.yaw), 0, -Math.cos(look.current.yaw));
         right.set(Math.cos(look.current.yaw), 0, -Math.sin(look.current.yaw));
@@ -436,17 +453,60 @@ function Walker({ active, chunks, onReachDoor }: { active: boolean; chunks: Map<
         }
         const blocked = (px: number, pz: number) => {
             if (insideHouse(px, pz, 0.3)) return true;
-            if (heightAt(px, pz) < WATER_LEVEL - 0.3) return true;
             const chunk = chunks.get(`${Math.floor(px / CHUNK_SIZE)},${Math.floor(pz / CHUNK_SIZE)}`);
             return blockedByTree(chunk?.data, px, pz);
         };
-        // Slide along obstacles: try both axes separately.
-        if (!blocked(x, camera.position.z)) camera.position.x = x;
-        if (!blocked(camera.position.x, z)) camera.position.z = z;
+        // Head-on into a trunk: veer a little to either side instead of stopping,
+        // then slide along obstacles axis by axis.
+        let nextX = x;
+        let nextZ = z;
+        if (blocked(x, z)) {
+            const moveX = x - camera.position.x;
+            const moveZ = z - camera.position.z;
+            for (const turn of [0.7, -0.7, 1.3, -1.3]) {
+                const tx = camera.position.x + (moveX * Math.cos(turn) - moveZ * Math.sin(turn)) * 0.8;
+                const tz = camera.position.z + (moveX * Math.sin(turn) + moveZ * Math.cos(turn)) * 0.8;
+                if (!blocked(tx, tz)) {
+                    nextX = tx;
+                    nextZ = tz;
+                    break;
+                }
+            }
+        }
+        if (!blocked(nextX, camera.position.z)) camera.position.x = nextX;
+        if (!blocked(camera.position.x, nextZ)) camera.position.z = nextZ;
 
-        const groundEye = Math.max(heightAt(camera.position.x, camera.position.z), WATER_LEVEL - 0.3) + 1.6;
-        camera.position.y += (groundEye - camera.position.y) * Math.min(1, delta * 10);
+        // Standing on the ground, or floating with the head above the water.
+        const floor = heightAt(camera.position.x, camera.position.z);
+        const nowSwimming = floor < WATER_LEVEL - SWIM_DEPTH;
+        const rest = nowSwimming
+            ? WATER_LEVEL + 0.32 + Math.sin(performance.now() / 600) * 0.04
+            : floor + EYE_HEIGHT;
+        const motion = fall.current;
+        if (outdoorInput.jump) {
+            outdoorInput.jump = false;
+            if (motion.grounded && !nowSwimming) {
+                motion.speed = JUMP_SPEED;
+                motion.grounded = false;
+            }
+        }
+        if (motion.grounded) {
+            // Follow slopes and the water surface smoothly.
+            camera.position.y += (rest - camera.position.y) * Math.min(1, step * 10);
+        } else {
+            motion.speed -= GRAVITY * step;
+            camera.position.y += motion.speed * step;
+            if (camera.position.y <= rest) {
+                camera.position.y = rest;
+                motion.speed = 0;
+                motion.grounded = true;
+            }
+        }
         camera.rotation.set(look.current.pitch, look.current.yaw, 0, "YXZ");
+        outdoorState.x = camera.position.x;
+        outdoorState.z = camera.position.z;
+        outdoorState.yaw = look.current.yaw;
+        outdoorState.swimming = nowSwimming;
     });
 
     return null;

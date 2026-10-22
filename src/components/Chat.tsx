@@ -482,8 +482,23 @@ function OutdoorHelp() {
         <>
             {showHint && (
                 <p className="outdoorHint" role="status">
-                    {touch ? "Use the joystick to walk · drag to look around" : "WASD or arrow keys to walk · Shift to run · drag to look around"}
+                    {touch
+                        ? "Joystick to walk · ⤒ to jump · drag to look around"
+                        : "WASD or arrow keys to walk · Shift to run · Space to jump · drag to look around"}
                 </p>
+            )}
+            <Suspense fallback={null}>
+                <LazyMinimap size={touch ? 124 : 176} />
+            </Suspense>
+            {touch && (
+                <button
+                    type="button"
+                    className="outdoorJump"
+                    aria-label="Jump"
+                    onPointerDown={(event) => { event.preventDefault(); outdoorInput.jump = true; }}
+                >
+                    ⤒
+                </button>
             )}
             {touch && (
                 <div
@@ -668,6 +683,7 @@ type ChatProps = {
 const LazySceneView = lazy(() => import("./SceneView"));
 const LazyDiagramPanel = lazy(() => import("./DiagramPanel"));
 const LazyYouTubePanel = lazy(() => import("./YouTubePanel"));
+const LazyMinimap = lazy(() => import("./outdoor/Minimap"));
 
 /** What the group is told about the video the user is watching. */
 function videoContext(video: VideoDetails) {
@@ -1356,7 +1372,8 @@ ${topicGuidance}
 
     useEffect(() => {
         const handleSpace = (event: KeyboardEvent) => {
-            if (event.code !== "Space" || event.repeat || speechPlaybackState === "idle") return;
+            // Outside, Space jumps.
+            if (event.code !== "Space" || event.repeat || speechPlaybackState === "idle" || outside) return;
 
             const target = event.target as HTMLElement | null;
             if (target?.matches("input, textarea, select, button") || target?.isContentEditable) return;
@@ -1367,7 +1384,7 @@ ${topicGuidance}
 
         window.addEventListener("keydown", handleSpace);
         return () => window.removeEventListener("keydown", handleSpace);
-    }, [speechPlaybackState]);
+    }, [speechPlaybackState, outside]);
 
     // Microphone activation is explicit even when browser permission is already
     // granted, so the invitation remains until activated or dismissed.
