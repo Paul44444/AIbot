@@ -18,8 +18,8 @@ const CENTER_X = (MIN_X + MAX_X) / 2;
 const CENTER_Z = (MIN_Z + MAX_Z) / 2;
 
 const COLORS = {
-    wall: "#f2e2d2",
-    ceiling: "#f5e9de",
+    wall: "#eec4a0",
+    ceiling: "#e9c9a6",
     trim: "#9b6338",
     wood: "#b77a46",
     darkWood: "#8a5430",
@@ -136,6 +136,27 @@ function makeSkyTexture() {
     });
 }
 
+function makePanelTexture() {
+    const random = seededRandom(17);
+    const texture = canvasTexture(256, 128, (ctx) => {
+        const boards = 4;
+        const boardWidth = 256 / boards;
+        const tones = ["#c48d5e", "#bd8657", "#c99364", "#c08a5a"];
+        for (let i = 0; i < boards; i++) {
+            ctx.fillStyle = tones[Math.floor(random() * tones.length)];
+            ctx.fillRect(i * boardWidth, 0, boardWidth, 128);
+            ctx.fillStyle = "rgba(70, 35, 15, 0.45)";
+            ctx.fillRect(i * boardWidth, 0, 2, 128);
+            ctx.fillStyle = "rgba(255, 230, 200, 0.18)";
+            ctx.fillRect(i * boardWidth + 2, 0, 2, 128);
+        }
+    });
+    texture.wrapS = THREE.RepeatWrapping;
+    return texture;
+}
+
+let panelTexture: THREE.Texture | null = null;
+
 function makeRugTexture() {
     return canvasTexture(512, 512, (ctx) => {
         ctx.fillStyle = "#d99d86";
@@ -234,6 +255,7 @@ function Wall({
             <mesh geometry={geometry}>
                 <meshStandardMaterial color={COLORS.wall} roughness={0.95} />
             </mesh>
+            <Wainscot width={width} />
             {/* Baseboard and crown molding. */}
             <mesh position={[0, 0.06, 0.012]}>
                 <boxGeometry args={[width, 0.12, 0.024]} />
@@ -245,6 +267,63 @@ function Wall({
             </mesh>
             {holes.map((hole, index) => <Window key={index} {...hole} />)}
             {children}
+        </group>
+    );
+}
+
+const WAINSCOT_HEIGHT = 0.85;
+
+/** Wooden boards along the lower part of a wall, topped by a small rail. */
+function Wainscot({ width }: { width: number }) {
+    const texture = useMemo(() => {
+        panelTexture ??= makePanelTexture();
+        const repeated = panelTexture.clone();
+        repeated.repeat.set(width / 0.6, 1);
+        return repeated;
+    }, [width]);
+
+    return (
+        <>
+            <mesh position={[0, WAINSCOT_HEIGHT / 2, 0.008]}>
+                <planeGeometry args={[width, WAINSCOT_HEIGHT]} />
+                <meshStandardMaterial map={texture} roughness={0.75} />
+            </mesh>
+            <mesh position={[0, WAINSCOT_HEIGHT, 0.018]}>
+                <boxGeometry args={[width, 0.045, 0.036]} />
+                <meshStandardMaterial color={COLORS.trim} roughness={0.7} />
+            </mesh>
+        </>
+    );
+}
+
+/** A sagging string of warm bulbs between two points on a wall (local space). */
+function FairyLights({ from, to, sag = 0.25, count = 15 }: { from: [number, number]; to: [number, number]; sag?: number; count?: number }) {
+    const { wire, bulbs } = useMemo(() => {
+        const pointAt = (t: number) => new THREE.Vector3(
+            THREE.MathUtils.lerp(from[0], to[0], t),
+            THREE.MathUtils.lerp(from[1], to[1], t) - Math.sin(Math.PI * t) * sag,
+            0.04,
+        );
+        const curve = new THREE.CatmullRomCurve3(Array.from({ length: 12 }, (_, i) => pointAt(i / 11)));
+        return {
+            wire: new THREE.TubeGeometry(curve, 48, 0.004, 4),
+            bulbs: Array.from({ length: count }, (_, i) => pointAt((i + 0.5) / count)),
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [from[0], from[1], to[0], to[1], sag, count]);
+
+    return (
+        <group>
+            <mesh geometry={wire}>
+                <meshStandardMaterial color="#4a3a2c" />
+            </mesh>
+            {bulbs.map((bulb, index) => (
+                <mesh key={index} position={[bulb.x, bulb.y - 0.025, bulb.z]}>
+                    <sphereGeometry args={[0.022, 10, 8]} />
+                    <meshBasicMaterial color={index % 3 === 1 ? "#ffc27a" : "#ffe0a6"} toneMapped={false} />
+                </mesh>
+            ))}
+            <pointLight position={[(from[0] + to[0]) / 2, (from[1] + to[1]) / 2 - sag, 0.3]} color="#ffb870" intensity={1.2} distance={3} decay={1.5} />
         </group>
     );
 }
@@ -628,7 +707,7 @@ function CeilingLamp({ position }: { position: [number, number, number] }) {
                 <cylinderGeometry args={[0.3, 0.34, 0.08, 32]} />
                 <meshStandardMaterial color="#ffd6a3" emissive="#ff9f4d" emissiveIntensity={1.6} roughness={0.6} />
             </mesh>
-            <pointLight position={[0, -0.45, 0]} color="#ffe2c4" intensity={4} distance={10} decay={1.2} />
+            <pointLight position={[0, -0.45, 0]} color="#ffd1a0" intensity={5} distance={10} decay={1.2} />
         </group>
     );
 }
@@ -690,6 +769,7 @@ export default function CozyRoom({ onReady }: { onReady: () => void }) {
             <Wall width={WIDTH} position={[CENTER_X, FLOOR_Y, MIN_Z]} rotationY={0} holes={northHoles}>
                 <Desk position={[-1.0, 0, 0.3]} />
                 <Bed position={[1.8, 0, 1.0]} />
+                <FairyLights from={[0.85, 2.5]} to={[2.75, 2.5]} />
                 <group position={[0.75, 0, 0.25]}>
                     <BlobShadow size={0.8} opacity={0.5} />
                     <RoundedBox args={[0.45, 0.5, 0.4]} radius={0.02} position={[0, 0.25, 0]}>
@@ -730,9 +810,16 @@ export default function CozyRoom({ onReady }: { onReady: () => void }) {
 
             <Rug position={[-0.5, FLOOR_Y + 0.008, -0.6]} />
             <CeilingLamp position={[-1.0, FLOOR_Y + HEIGHT, -1.6]} />
+            {/* Exposed ceiling beams for a cottage feel. */}
+            {[-2.8, -0.4, 1.9].map((z) => (
+                <mesh key={z} position={[CENTER_X, FLOOR_Y + HEIGHT - 0.07, z]}>
+                    <boxGeometry args={[WIDTH, 0.14, 0.18]} />
+                    <meshStandardMaterial color={COLORS.trim} roughness={0.8} />
+                </mesh>
+            ))}
 
-            <hemisphereLight args={["#fffaf3", "#d9bfa8", 0.8]} />
-            <directionalLight position={[2, 3, -5]} color="#fff6ea" intensity={1.1} />
+            <hemisphereLight args={["#ffe9d2", "#c99a74", 0.6]} />
+            <directionalLight position={[2, 3, -5]} color="#ffeedd" intensity={1.1} />
         </group>
     );
 }
