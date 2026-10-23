@@ -371,7 +371,15 @@ export class GroupConversation {
     }
 
     private setSpeaking(id: CharacterId | null) {
-        if (id) this.interruptAll(id);
+        if (id) {
+            this.interruptAll(id);
+            // A paused voice (Pause button, Space, or the browser itself) would stay
+            // silent for every later reply while the transcript still shows up.
+            const audio = this.ready.get(id)?.audioEl;
+            if (audio?.paused) {
+                void audio.play().catch((error) => console.error(`${CHARACTER_BY_ID[id].name}'s voice could not resume:`, error));
+            }
+        }
         this.speaking = id;
         this.callbacks.onSpeakingChange(id);
         if (!id && this.pendingHands) this.showHands(this.pendingHands);
