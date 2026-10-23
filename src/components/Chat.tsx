@@ -1082,7 +1082,9 @@ export default function Chat({
         settingsRef.current = `
 Always answer with no more than ${sentenceCountToUse} sentence${sentenceCountToUse === 1 ? "" : "s"}, unless you were given the floor to jump in.
 Finish each sentence with normal sentence-ending punctuation. Do not use semicolons or run-on sentences to evade this limit.
-Each answer must contain useful conversational content, not only a short reaction such as "Great idea!" or "That sounds nice!".
+That is a maximum, not a target: answer like a person in a spoken conversation and match the weight of what the user said.
+Small talk ("How are you?", "Hi") gets a short, casual reply, often just a few words; then let the user lead.
+Avoid empty filler such as "Great idea!" or "That sounds nice!" on its own.
 ${paceInstruction}
 
 ${topicGuidance}
