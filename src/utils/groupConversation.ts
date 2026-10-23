@@ -64,6 +64,8 @@ export class GroupConversation {
     private microphone: MediaStream | null = null;
     private addressee: CharacterId = "jenny";
     private settings = "";
+    /** Playback speed of every voice (the API allows 0.25–1.5; 1 is normal). */
+    private speed = 1;
     private lines: { speaker: string; text: string }[] = [];
     private replies = new Map<CharacterId, string>();
     private speaking: CharacterId | null = null;
@@ -93,8 +95,9 @@ export class GroupConversation {
         return this.speaking ? this.ready.get(this.speaking)?.audioEl ?? null : null;
     }
 
-    updateSettings(settings: string) {
+    updateSettings(settings: string, speed: number) {
         this.settings = settings;
+        this.speed = speed;
         for (const [id, session] of this.ready) this.sendInstructions(id, session);
     }
 
@@ -259,6 +262,8 @@ export class GroupConversation {
                 type: "realtime",
                 output_modalities: ["audio"],
                 instructions: characterInstructions(CHARACTER_BY_ID[id], this.settings),
+                // Real time-stretching; asking for a slower pace in the instructions barely works.
+                audio: { output: { speed: this.speed } },
                 tools: [DRAW_DIAGRAM_TOOL],
                 tool_choice: "auto",
             },

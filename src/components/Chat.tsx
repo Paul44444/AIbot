@@ -810,7 +810,7 @@ export default function Chat({
     const [addressee, setAddressee] = useState<CharacterId>("jenny");
     const [speakingId, setSpeakingId] = useState<CharacterId | null>(null);
     const [hands, setHands] = useState<RaisedHand[]>([]);
-    const [speechRate, setSpeechRate] = useState(0.55);
+    const [speechRate, setSpeechRate] = useState(1);
     const speechRateRef = useRef(speechRate);
     const [sentenceCount, setSentenceCount] = useState(1);
     const sentenceCountRef = useRef(sentenceCount);
@@ -973,7 +973,7 @@ export default function Chat({
                 }]);
             },
         }, conversationAbortRef.current.signal);
-        group.updateSettings(settingsRef.current);
+        group.updateSettings(settingsRef.current, speechRateRef.current);
         if (videoRef.current) group.setVideoContext(videoContext(videoRef.current), videoPosition);
         groupRef.current = group;
         return group;
@@ -1084,11 +1084,10 @@ Always answer with no more than ${sentenceCountToUse} sentence${sentenceCountToU
 Finish each sentence with normal sentence-ending punctuation. Do not use semicolons or run-on sentences to evade this limit.
 Each answer must contain useful conversational content, not only a short reaction such as "Great idea!" or "That sounds nice!".
 ${paceInstruction}
-Aim for approximately ${Math.round(speechRateToUse * 100)}% of a normal conversational speaking rate.
 
 ${topicGuidance}
         `.trim();
-        groupRef.current?.updateSettings(settingsRef.current);
+        groupRef.current?.updateSettings(settingsRef.current, speechRateToUse);
     };
 
     const set1sentence = () => updateRealtimeSession(1);
