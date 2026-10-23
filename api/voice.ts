@@ -6,10 +6,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 /** Voices the site may use; anything else would let others spend the quota on any voice. */
 const VOICES = new Set([
-    "N2lVS1w4EtoT3dr4eOWO", // Callum: husky trickster
-    "TX3LPaxmHKxFdv7VOQHJ", // Liam: young, energetic
-    "bIHbv24MWmeRgasZH58o", // Will: young, relaxed
-    "SOYHLrjzK2X1ezoPC6cr", // Harry: young, fierce
+    "SOYHLrjzK2X1ezoPC6cr", // Harry: young and fierce (Jinx); the highest of the young premade voices
 ]);
 const MAX_TEXT = 700;
 

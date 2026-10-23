@@ -39,7 +39,7 @@ You sometimes gently moderate: you summarize, invite the user's opinion, or teas
         name: "Jinx",
         role: "The trickster",
         voice: "ash",
-        expressiveVoice: "N2lVS1w4EtoT3dr4eOWO",
+        expressiveVoice: "SOYHLrjzK2X1ezoPC6cr",
         avatarUrl: "/model/human11.vrm",
         color: "#ffb35c",
         tagline: "Smug, edgy and a terrible influence — never short of a bad idea.",
