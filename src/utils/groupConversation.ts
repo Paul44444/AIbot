@@ -225,7 +225,8 @@ export class GroupConversation {
                 if (line.speaker !== character.name) this.inject(session, `[${line.speaker}]: ${line.text}`);
             }
             if (this.videoContext) this.inject(session, this.videoContext);
-            if (id === this.addressee) await this.attachMicrophone();
+            // Not attachMicrophone(): it waits for this very connection and would never resolve.
+            if (id === this.addressee) await this.routeMicrophone();
             return session;
         })();
         pending.catch((error) => {
@@ -237,9 +238,15 @@ export class GroupConversation {
     }
 
     private async attachMicrophone() {
+        if (!this.microphone) return;
+        await this.connect(this.addressee);
+        await this.routeMicrophone();
+    }
+
+    /** Sends the mic to the addressee's session only, among those already connected. */
+    private async routeMicrophone() {
         const track = this.microphone?.getAudioTracks()[0] ?? null;
         if (!track) return;
-        await this.connect(this.addressee);
         await Promise.all([...this.ready].map(([id, session]) =>
             session.setMicrophoneTrack(id === this.addressee ? track : null)));
     }
