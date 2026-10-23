@@ -6,7 +6,10 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 /** Voices the site may use; anything else would let others spend the quota on any voice. */
 const VOICES = new Set([
-    "N2lVS1w4EtoT3dr4eOWO", // Callum: husky trickster (Jinx)
+    "N2lVS1w4EtoT3dr4eOWO", // Callum: husky trickster
+    "TX3LPaxmHKxFdv7VOQHJ", // Liam: young, energetic
+    "bIHbv24MWmeRgasZH58o", // Will: young, relaxed
+    "SOYHLrjzK2X1ezoPC6cr", // Harry: young, fierce
 ]);
 const MAX_TEXT = 700;
 
