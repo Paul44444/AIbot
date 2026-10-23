@@ -196,6 +196,41 @@ function ChatTranscript({
     );
 }
 
+/** Languages the user can speak in; the transcriber is told which one instead of guessing. */
+const SPEECH_LANGUAGES: { code: string; name: string; english: string }[] = [
+    { code: "de", name: "Deutsch", english: "German" },
+    { code: "en", name: "English", english: "English" },
+    { code: "fr", name: "Français", english: "French" },
+    { code: "es", name: "Español", english: "Spanish" },
+    { code: "it", name: "Italiano", english: "Italian" },
+    { code: "pt", name: "Português", english: "Portuguese" },
+    { code: "nl", name: "Nederlands", english: "Dutch" },
+    { code: "pl", name: "Polski", english: "Polish" },
+    { code: "tr", name: "Türkçe", english: "Turkish" },
+    { code: "ru", name: "Русский", english: "Russian" },
+    { code: "uk", name: "Українська", english: "Ukrainian" },
+    { code: "sv", name: "Svenska", english: "Swedish" },
+    { code: "ja", name: "日本語", english: "Japanese" },
+    { code: "zh", name: "中文", english: "Chinese" },
+    { code: "ko", name: "한국어", english: "Korean" },
+    { code: "ar", name: "العربية", english: "Arabic" },
+];
+const AUTO_LANGUAGE = "auto";
+const transcriptionLanguage = (code: string) => code === AUTO_LANGUAGE ? null : code;
+const SPEECH_LANGUAGE_KEY = "speechLanguage";
+
+/** The saved choice, else the browser's language (closer to what people speak than their location). */
+function initialSpeechLanguage() {
+    try {
+        const saved = localStorage.getItem(SPEECH_LANGUAGE_KEY);
+        if (saved && (saved === AUTO_LANGUAGE || SPEECH_LANGUAGES.some((language) => language.code === saved))) return saved;
+    } catch {
+        // Storage can be unavailable; fall back to the browser language.
+    }
+    const browser = navigator.language.split("-")[0];
+    return SPEECH_LANGUAGES.some((language) => language.code === browser) ? browser : AUTO_LANGUAGE;
+}
+
 // Small talk stays short either way; the limit only caps longer explanations.
 const SENTENCE_OPTIONS = [
     { count: 1, label: "short" },
@@ -208,6 +243,8 @@ function LanguagePanel({
                            onClose,
                            sentenceCount,
                            onSentenceCount,
+                           speechLanguage,
+                           onSpeechLanguage,
                            selectedTopic,
                            onTopicChange,
                            progress,
@@ -217,6 +254,8 @@ function LanguagePanel({
     onClose: () => void;
     sentenceCount: number;
     onSentenceCount: (count: number) => void;
+    speechLanguage: string;
+    onSpeechLanguage: (code: string) => void;
     selectedTopic: string;
     onTopicChange: (topic: string) => void;
     progress: any;
@@ -357,6 +396,19 @@ function LanguagePanel({
                     </div>
                 );
             })}
+
+            <h3 style={{ marginTop: 20, fontSize: "0.9rem" }}>I speak:</h3>
+            <select
+                value={speechLanguage}
+                onChange={(event) => onSpeechLanguage(event.target.value)}
+                aria-label="Language you speak in"
+                style={{ width: "100%", padding: "6px 8px" }}
+            >
+                {SPEECH_LANGUAGES.map((language) => (
+                    <option key={language.code} value={language.code}>{language.name}</option>
+                ))}
+                <option value={AUTO_LANGUAGE}>Auto-detect (several languages)</option>
+            </select>
 
             <h3 style={{ marginTop: 20, fontSize: "0.9rem" }}>Sentences per answer (at most):</h3>
             <div style={{ display: "flex", gap: 8 }}>
@@ -829,6 +881,8 @@ export default function Chat({
     const [speechRate, setSpeechRate] = useState(1);
     const speechRateRef = useRef(speechRate);
     const [sentenceCount, setSentenceCount] = useState(3);
+    const [speechLanguage, setSpeechLanguage] = useState(initialSpeechLanguage);
+    const speechLanguageRef = useRef(speechLanguage);
     const sentenceCountRef = useRef(sentenceCount);
     const [gapWords, setGapWords] = useState<GapWord[]>([]);
     const [gapWordsLoading, setGapWordsLoading] = useState(false);
@@ -989,7 +1043,7 @@ export default function Chat({
                 }]);
             },
         }, conversationAbortRef.current.signal);
-        group.updateSettings(settingsRef.current, speechRateRef.current);
+        group.updateSettings(settingsRef.current, speechRateRef.current, transcriptionLanguage(speechLanguageRef.current));
         if (videoRef.current) group.setVideoContext(videoContext(videoRef.current), videoPosition);
         groupRef.current = group;
         return group;
@@ -1076,7 +1130,9 @@ export default function Chat({
 
     const lastMessageCountRef = useRef(0);
 
-    const updateRealtimeSession = (count?: number, topic?: string, rate?: number) => {
+    const updateRealtimeSession = (count?: number, topic?: string, rate?: number, language?: string) => {
+        const languageToUse = language ?? speechLanguageRef.current;
+        const spokenLanguage = SPEECH_LANGUAGES.find((item) => item.code === languageToUse);
         const sentenceCountToUse = count !== undefined ? count : sentenceCount;
         const topicToUse = topic !== undefined ? topic : selectedTopic;
         const speechRateToUse = rate !== undefined ? rate : speechRate;
@@ -1102,12 +1158,26 @@ That is a maximum, not a target: answer like a person in a spoken conversation a
 Small talk ("How are you?", "Hi") gets a short, casual reply, often just a few words; then let the user lead.
 Avoid empty filler such as "Great idea!" or "That sounds nice!" on its own.
 ${paceInstruction}
+${spokenLanguage ? `The user speaks ${spokenLanguage.english} with you. Reply in the language the user actually uses. If a transcript of their speech
+looks like another language or gibberish, it is almost certainly a mistranscription of ${spokenLanguage.english}: answer in ${spokenLanguage.english}.
+Switch languages only when the user clearly asks for it or clearly keeps writing in another language.` : "Reply in the language the user speaks."}
 
 ${topicGuidance}
         `.trim();
-        groupRef.current?.updateSettings(settingsRef.current, speechRateToUse);
+        groupRef.current?.updateSettings(settingsRef.current, speechRateToUse, transcriptionLanguage(languageToUse));
     };
 
+
+    const changeSpeechLanguage = (code: string) => {
+        setSpeechLanguage(code);
+        speechLanguageRef.current = code;
+        try {
+            localStorage.setItem(SPEECH_LANGUAGE_KEY, code);
+        } catch {
+            // Only remembered for this visit then.
+        }
+        updateRealtimeSession(undefined, undefined, undefined, code);
+    };
 
     const changeSpeechRate = (nextRate: number) => {
         setSpeechRate(nextRate);
@@ -1644,6 +1714,8 @@ ${topicGuidance}
                 onClose={() => setShowLanguagePanel(false)}
                 sentenceCount={sentenceCount}
                 onSentenceCount={(count) => updateRealtimeSession(count)}
+                speechLanguage={speechLanguage}
+                onSpeechLanguage={changeSpeechLanguage}
                 selectedTopic={selectedTopic}
                 onTopicChange={handleTopicChange}
                 progress={progress}

@@ -73,6 +73,8 @@ export class GroupConversation {
     private settings = "";
     /** Playback speed of every voice (the API allows 0.25–1.5; 1 is normal). */
     private speed = 1;
+    /** ISO 639-1 code the user's speech is transcribed in; null lets the transcriber guess. */
+    private language: string | null = null;
     private lines: { speaker: string; text: string }[] = [];
     private replies = new Map<CharacterId, string>();
     private speaking: CharacterId | null = null;
@@ -108,9 +110,10 @@ export class GroupConversation {
         return this.speaking ? this.ready.get(this.speaking)?.audioEl ?? null : null;
     }
 
-    updateSettings(settings: string, speed: number) {
+    updateSettings(settings: string, speed: number, language: string | null) {
         this.settings = settings;
         this.speed = speed;
+        this.language = language;
         for (const [id, session] of this.ready) this.sendInstructions(id, session);
     }
 
@@ -281,7 +284,11 @@ export class GroupConversation {
                 output_modalities: outputModalities(id),
                 instructions: characterInstructions(CHARACTER_BY_ID[id], this.settings),
                 // Real time-stretching; asking for a slower pace in the instructions barely works.
-                audio: { output: { speed: this.speed } },
+                audio: {
+                    // Guessing the language per utterance mistakes short or quiet German for Japanese or Swedish.
+                    input: { transcription: { model: "gpt-4o-mini-transcribe", ...(this.language ? { language: this.language } : {}) } },
+                    output: { speed: this.speed },
+                },
                 tools: [DRAW_DIAGRAM_TOOL],
                 tool_choice: "auto",
             },
