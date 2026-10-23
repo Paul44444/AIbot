@@ -196,12 +196,18 @@ function ChatTranscript({
     );
 }
 
+// Small talk stays short either way; the limit only caps longer explanations.
+const SENTENCE_OPTIONS = [
+    { count: 1, label: "short" },
+    { count: 3, label: "normal" },
+    { count: 5, label: "detailed" },
+];
+
 function LanguagePanel({
                            open,
                            onClose,
-                           set1sentence,
-                           set2sentence,
-                           set4sentence,
+                           sentenceCount,
+                           onSentenceCount,
                            selectedTopic,
                            onTopicChange,
                            progress,
@@ -209,9 +215,8 @@ function LanguagePanel({
                        }: {
     open: boolean;
     onClose: () => void;
-    set1sentence: () => void;
-    set2sentence: () => void;
-    set4sentence: () => void;
+    sentenceCount: number;
+    onSentenceCount: (count: number) => void;
     selectedTopic: string;
     onTopicChange: (topic: string) => void;
     progress: any;
@@ -353,11 +358,22 @@ function LanguagePanel({
                 );
             })}
 
-            <h3 style={{ marginTop: 20, fontSize: "0.9rem" }}>Sentences per answer:</h3>
+            <h3 style={{ marginTop: 20, fontSize: "0.9rem" }}>Sentences per answer (at most):</h3>
             <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={set1sentence} style={{ flex: 1 }}>1</button>
-                <button onClick={set2sentence} style={{ flex: 1 }}>2</button>
-                <button onClick={set4sentence} style={{ flex: 1 }}>4</button>
+                {SENTENCE_OPTIONS.map(({ count, label }) => (
+                    <button
+                        key={count}
+                        onClick={() => onSentenceCount(count)}
+                        aria-pressed={sentenceCount === count}
+                        style={{
+                            flex: 1,
+                            fontWeight: sentenceCount === count ? 700 : 400,
+                            outline: sentenceCount === count ? "2px solid #7aa7ff" : "none",
+                        }}
+                    >
+                        {count} · {label}
+                    </button>
+                ))}
             </div>
 
             <div style={{ marginTop: 20, display: "flex", gap: 8 }}>
@@ -812,7 +828,7 @@ export default function Chat({
     const [hands, setHands] = useState<RaisedHand[]>([]);
     const [speechRate, setSpeechRate] = useState(1);
     const speechRateRef = useRef(speechRate);
-    const [sentenceCount, setSentenceCount] = useState(1);
+    const [sentenceCount, setSentenceCount] = useState(3);
     const sentenceCountRef = useRef(sentenceCount);
     const [gapWords, setGapWords] = useState<GapWord[]>([]);
     const [gapWordsLoading, setGapWordsLoading] = useState(false);
@@ -1092,9 +1108,6 @@ ${topicGuidance}
         groupRef.current?.updateSettings(settingsRef.current, speechRateToUse);
     };
 
-    const set1sentence = () => updateRealtimeSession(1);
-    const set2sentence = () => updateRealtimeSession(2);
-    const set4sentence = () => updateRealtimeSession(4);
 
     const changeSpeechRate = (nextRate: number) => {
         setSpeechRate(nextRate);
@@ -1629,9 +1642,8 @@ ${topicGuidance}
             <LanguagePanel
                 open={showLanguagePanel}
                 onClose={() => setShowLanguagePanel(false)}
-                set1sentence={set1sentence}
-                set2sentence={set2sentence}
-                set4sentence={set4sentence}
+                sentenceCount={sentenceCount}
+                onSentenceCount={(count) => updateRealtimeSession(count)}
                 selectedTopic={selectedTopic}
                 onTopicChange={handleTopicChange}
                 progress={progress}
