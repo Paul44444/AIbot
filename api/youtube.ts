@@ -37,7 +37,7 @@ class QuotaError extends Error {}
 // search per character and language per day (cached at the edge for everyone).
 const FEEDS: Record<string, string[]> = {
     jenny: ["flower garden tour", "cozy cooking recipe", "relaxing nature walk", "houseplant care tips", "acoustic cover songs", "baking for beginners"],
-    jinx: ["skateboard tricks", "funny life hacks", "gaming highlights", "street food challenge", "parkour", "magic tricks revealed"],
+    jinx: ["skateboard tricks", "epic fails compilation", "gaming highlights", "street food challenge", "viral challenge", "magic tricks revealed"],
     smyth: ["science explained", "how the universe works", "biology explained", "physics explained", "history of science", "how the brain works"],
 };
 
@@ -169,11 +169,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 safeSearch: "strict",
                 // Skip shorts; 4–20 minute videos suit watching together.
                 videoDuration: "medium",
+                // Recent, so the characters can talk about what is new (whole days keep the edge cache).
+                publishedAfter: new Date(Math.floor(Date.now() / 86_400_000) * 86_400_000 - 30 * 86_400_000).toISOString(),
             };
             if (/^[a-z]{2}$/.test(query.lang ?? "")) params.relevanceLanguage = query.lang!;
             const found = await youtube<{ items: { id: { videoId: string } }[] }>("search", params);
             const videos = await details(found.items.map((item) => item.id.videoId).filter(Boolean));
-            return res.status(200).json({ topic, videos: videos.map(summary) });
+            // A bit of each description, so the characters know what happens in what they "watched".
+            return res.status(200).json({
+                topic,
+                videos: videos.map((video) => ({ ...summary(video), description: video.snippet.description.replace(/\s+/g, " ").slice(0, 280) })),
+            });
         }
 
         if (action === "channel" && query.channelId) {

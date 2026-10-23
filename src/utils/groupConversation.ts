@@ -1,4 +1,5 @@
 import { sendRealtimeText, startRealtimeVoiceSession } from "./realtimeVoice";
+import { describeFeed, loadFeed } from "./characterFeed";
 import {
     CHARACTERS,
     CHARACTER_BY_ID,
@@ -241,6 +242,10 @@ export class GroupConversation {
                 if (line.speaker !== character.name) this.inject(session, `[${line.speaker}]: ${line.text}`);
             }
             if (this.videoContext) this.inject(session, this.videoContext);
+            // Something real and recent to talk about; it arrives a moment later, without delaying the call.
+            void loadFeed(id).then((feed) => {
+                if (!this.signal.aborted && session.dc.readyState === "open" && feed.videos.length) this.inject(session, describeFeed(feed));
+            }).catch(() => {});
             // Not attachMicrophone(): it waits for this very connection and would never resolve.
             if (id === this.addressee) await this.routeMicrophone();
             return session;

@@ -1,20 +1,10 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { CHARACTER_BY_ID, type CharacterId } from "../data/characters";
 import { formatTime, type VideoSummary } from "../types/youtube";
+import { loadFeed } from "../utils/characterFeed";
 
 // A character's YouTube feed shown on their PC screen in the 3D room. Picking a
 // video opens it in the big viewer; anywhere else on the screen opens the viewer.
-
-const feeds = new Map<CharacterId, Promise<{ topic: string; videos: VideoSummary[] }>>();
-function loadFeed(id: CharacterId) {
-    if (!feeds.has(id)) {
-        const request = fetch(`/api/youtube?${new URLSearchParams({ action: "feed", character: id, lang: navigator.language.split("-")[0] })}`)
-            .then((response) => response.ok ? response.json() : Promise.reject(new Error(String(response.status))));
-        request.catch(() => feeds.delete(id));
-        feeds.set(id, request);
-    }
-    return feeds.get(id)!;
-}
 
 export default function MonitorFeed({ characterId, width, height, onOpenVideo, onOpenYouTube }: {
     characterId: CharacterId;
