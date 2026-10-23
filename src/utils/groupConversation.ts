@@ -5,6 +5,7 @@ import {
     DRAW_DIAGRAM_TOOL,
     characterInstructions,
     interjectionInstructions,
+    withoutStageDirections,
     type CharacterId,
 } from "../data/characters";
 
@@ -36,6 +37,11 @@ export type GroupCallbacks = {
 };
 
 const HISTORY_FOR_LATE_JOINERS = 12;
+
+/** Characters with an expressive voice reply in text, which /api/voice then performs. */
+function outputModalities(id: CharacterId) {
+    return CHARACTER_BY_ID[id].expressiveVoice ? ["text"] : ["audio"];
+}
 
 function waitForOpen(dc: RTCDataChannel) {
     if (dc.readyState === "open") return Promise.resolve();
@@ -69,6 +75,11 @@ export class GroupConversation {
     private lines: { speaker: string; text: string }[] = [];
     private replies = new Map<CharacterId, string>();
     private speaking: CharacterId | null = null;
+    /** Plays expressive voices; one at a time, like everyone else. */
+    private voiceAudio: HTMLAudioElement | null = null;
+    /** Whose expressive reply is being fetched or played. */
+    private voicing: CharacterId | null = null;
+    private voiceRun = 0;
     private directorRun = 0;
     // Hands go up once the current speaker has finished, not while they talk.
     private pendingHands: RaisedHand[] | null = null;
@@ -92,6 +103,7 @@ export class GroupConversation {
     }
 
     speakingAudio() {
+        if (this.speaking && this.speaking === this.voicing) return this.voiceAudio;
         return this.speaking ? this.ready.get(this.speaking)?.audioEl ?? null : null;
     }
 
@@ -150,7 +162,7 @@ export class GroupConversation {
         session.dc.send(JSON.stringify({
             type: "response.create",
             response: {
-                output_modalities: ["audio"],
+                output_modalities: outputModalities(id),
                 instructions: interjectionInstructions(CHARACTER_BY_ID[id], this.settings, teaser),
             },
         }));
@@ -165,7 +177,7 @@ export class GroupConversation {
             type: "conversation.item.create",
             item: { type: "function_call_output", call_id: callId, output: JSON.stringify(result) },
         }));
-        session.dc.send(JSON.stringify({ type: "response.create", response: { output_modalities: ["audio"] } }));
+        session.dc.send(JSON.stringify({ type: "response.create", response: { output_modalities: outputModalities(id) } }));
     }
 
     setVideoContext(context: string | null, position: (() => string | null) | null) {
@@ -194,6 +206,7 @@ export class GroupConversation {
         this.microphone?.getTracks().forEach((track) => track.stop());
         this.microphone = null;
         for (const session of this.ready.values()) session.dispose();
+        this.stopVoice();
     }
 
     connect(id: CharacterId) {
@@ -212,7 +225,7 @@ export class GroupConversation {
                 onAssistantTextDelta: (delta) => {
                     const text = (this.replies.get(id) ?? "") + delta;
                     this.replies.set(id, text);
-                    this.callbacks.onReplyDelta(id, text);
+                    this.callbacks.onReplyDelta(id, withoutStageDirections(text));
                 },
                 onAssistantTextDone: () => this.handleReplyDone(id),
                 onAudioStart: () => this.setSpeaking(id),
@@ -260,7 +273,7 @@ export class GroupConversation {
             type: "session.update",
             session: {
                 type: "realtime",
-                output_modalities: ["audio"],
+                output_modalities: outputModalities(id),
                 instructions: characterInstructions(CHARACTER_BY_ID[id], this.settings),
                 // Real time-stretching; asking for a slower pace in the instructions barely works.
                 audio: { output: { speed: this.speed } },
@@ -293,8 +306,11 @@ export class GroupConversation {
         if (!session || session.dc.readyState !== "open") return;
         // The text of a reply finishes before its audio; cancel only what is still running.
         if (this.replies.has(id)) session.dc.send(JSON.stringify({ type: "response.cancel" }));
-        if (this.speaking === id) session.dc.send(JSON.stringify({ type: "output_audio_buffer.clear" }));
-        const partial = this.replies.get(id)?.trim();
+        if (this.speaking === id && !CHARACTER_BY_ID[id].expressiveVoice) {
+            session.dc.send(JSON.stringify({ type: "output_audio_buffer.clear" }));
+        }
+        if (this.voicing === id) this.stopVoice();
+        const partial = withoutStageDirections(this.replies.get(id) ?? "");
         this.replies.delete(id);
         if (partial) {
             const name = CHARACTER_BY_ID[id].name;
@@ -309,7 +325,7 @@ export class GroupConversation {
         this.directorRun += 1;
         this.pendingHands = null;
         // Only sessions that are producing something; cancelling an idle one is an API error.
-        const active = new Set([...this.replies.keys(), ...(this.speaking ? [this.speaking] : [])]);
+        const active = new Set([...this.replies.keys(), ...(this.speaking ? [this.speaking] : []), ...(this.voicing ? [this.voicing] : [])]);
         for (const id of active) if (id !== except) this.stop(id);
         if (this.speaking && this.speaking !== except) {
             this.speaking = null;
@@ -320,6 +336,11 @@ export class GroupConversation {
     private handleUserSpeechStart() {
         // The addressed session handles its own barge-in; silence everyone else.
         this.interruptAll(this.addressee);
+        // An expressive voice plays outside the session, so it is cut off here.
+        if (this.voicing === this.addressee) {
+            this.stopVoice();
+            if (this.speaking === this.addressee) this.setSpeaking(null);
+        }
         // Arrives before speech ends, i.e. before the automatic reply is created.
         this.tellVideoPosition(this.addressee);
         this.callbacks.onHands([]);
@@ -337,7 +358,7 @@ export class GroupConversation {
         void this.setAddressee(target);
         void this.connect(target).then((session) => {
             if (this.signal.aborted) return;
-            session.dc.send(JSON.stringify({ type: "response.create", response: { output_modalities: ["audio"] } }));
+            session.dc.send(JSON.stringify({ type: "response.create", response: { output_modalities: outputModalities(target) } }));
         });
     }
 
@@ -365,9 +386,11 @@ export class GroupConversation {
     }
 
     private handleReplyDone(id: CharacterId) {
-        const text = (this.replies.get(id) ?? "").trim();
+        const performance = (this.replies.get(id) ?? "").trim();
+        const text = withoutStageDirections(performance);
         this.replies.delete(id);
         if (!text) return;
+        if (CHARACTER_BY_ID[id].expressiveVoice) this.perform(id, performance);
         const name = CHARACTER_BY_ID[id].name;
         this.lines.push({ speaker: name, text });
         this.injectIntoOthers(id, `[${name}]: ${text}`);
@@ -397,6 +420,52 @@ export class GroupConversation {
         for (const hand of hands) void this.connect(hand.id).catch(() => {});
     }
 
+    /** Plays a reply with stage directions in the character's expressive voice. */
+    private perform(id: CharacterId, performance: string) {
+        this.stopVoice();
+        const run = this.voiceRun;
+        this.voicing = id;
+        if (!this.voiceAudio) {
+            this.voiceAudio = new Audio();
+            this.voiceAudio.setAttribute("playsinline", "true");
+        }
+        const audio = this.voiceAudio;
+        const done = () => {
+            if (run !== this.voiceRun) return;
+            this.voicing = null;
+            if (this.speaking === id) this.setSpeaking(null);
+            else if (this.pendingHands && !this.speaking) this.showHands(this.pendingHands);
+        };
+        // Fires again after a pause; only the first start makes them the speaker.
+        audio.onplaying = () => { if (run === this.voiceRun && this.speaking !== id) this.setSpeaking(id); };
+        audio.onended = done;
+        audio.onerror = () => {
+            if (run === this.voiceRun) console.error(`${CHARACTER_BY_ID[id].name}'s voice failed:`, audio.error);
+            done();
+        };
+        audio.src = `/api/voice?${new URLSearchParams({
+            voice: CHARACTER_BY_ID[id].expressiveVoice!,
+            text: performance,
+            speed: String(this.speed),
+        })}`;
+        void audio.play().catch((error) => {
+            if (run !== this.voiceRun) return;
+            console.error(`${CHARACTER_BY_ID[id].name}'s voice could not play:`, error);
+            done();
+        });
+    }
+
+    private stopVoice() {
+        this.voiceRun += 1;
+        this.voicing = null;
+        const audio = this.voiceAudio;
+        if (audio && audio.getAttribute("src")) {
+            audio.pause();
+            audio.removeAttribute("src");
+            audio.load();
+        }
+    }
+
     private async askDirector(lastSpeakerId: CharacterId) {
         const run = ++this.directorRun;
         try {
@@ -413,7 +482,7 @@ export class GroupConversation {
             const { hands } = await response.json() as { hands: RaisedHand[] };
             // Someone started talking meanwhile; the moment has passed.
             if (run !== this.directorRun || this.signal.aborted || this.sketching || !hands.length) return;
-            if (this.speaking) this.pendingHands = hands;
+            if (this.speaking || this.voicing) this.pendingHands = hands;
             else this.showHands(hands);
         } catch (error) {
             if (!this.signal.aborted) console.error("Director failed:", error);

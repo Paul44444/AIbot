@@ -6,6 +6,11 @@ export type Character = {
     role: string;
     /** Realtime voice; fixed per session, so every character has their own session. */
     voice: string;
+    /**
+     * ElevenLabs voice for an expressive performance. The character's session then
+     * replies in text with stage directions, which this voice acts out (see /api/voice).
+     */
+    expressiveVoice?: string;
     avatarUrl: string;
     color: string;
     /** Shown in the hover card in the 3D scene. */
@@ -34,6 +39,7 @@ You sometimes gently moderate: you summarize, invite the user's opinion, or teas
         name: "Jinx",
         role: "The trickster",
         voice: "ash",
+        expressiveVoice: "N2lVS1w4EtoT3dr4eOWO",
         avatarUrl: "/model/human11.vrm",
         color: "#ffb35c",
         tagline: "Smug, edgy and a terrible influence — never short of a bad idea.",
@@ -109,6 +115,14 @@ How the group conversation works:
   Before calling it, say one short sentence such as "Let me sketch that for you."
   When the sketch is done, explain it briefly in your own style, pointing out the key insight; the user sees it.`;
 
+/** For characters with an expressive voice: their text is performed by a voice actor. */
+const STAGE_DIRECTIONS = `Your replies are text that a voice actor performs out loud. Direct the performance with short
+stage directions in square brackets, always in English even when you speak another language, placed right before
+the words they colour: [smirks], [laughs], [evil laugh], [chuckles], [sighs], [yawns], [bored], [sarcastic],
+[mock surprise], [whispers], [conspiratorial], [annoyed], [dramatic pause], [gasps], [excited].
+Use one to three per reply, where a real person would actually change their voice; vary them.
+Everything outside the brackets is spoken word for word, so write only what you say: no emojis, no lists, no markdown.`;
+
 export const DRAW_DIAGRAM_TOOL = {
     type: "function",
     name: "draw_diagram",
@@ -130,11 +144,16 @@ export const DRAW_DIAGRAM_TOOL = {
     },
 } as const;
 
+/** Removes stage directions such as "[laughs]" (and a cut-off one at the end) for display. */
+export function withoutStageDirections(text: string) {
+    return text.replace(/\[[^\]]*(\]|$)/g, "").replace(/[ \t]{2,}/g, " ").replace(/\s+([,.!?])/g, "$1").trim();
+}
+
 /** Session instructions for one character, combined with the user's chat settings. */
 export function characterInstructions(character: Character, settings: string) {
     return `You are ${character.name}, ${character.role.toLowerCase()} of the group.
 ${character.personality}
-
+${character.expressiveVoice ? `\n${STAGE_DIRECTIONS}\n` : ""}
 ${GROUP_RULES}
 
 ${settings}`.trim();

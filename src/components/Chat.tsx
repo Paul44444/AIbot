@@ -1346,7 +1346,8 @@ ${topicGuidance}
 
     const toggleSpeechPlayback = () => {
         const realtimeAudio = groupRef.current?.speakingAudio();
-        if (realtimeAudio?.srcObject) {
+        // A realtime stream, or an expressive voice playing a file.
+        if (realtimeAudio?.srcObject || realtimeAudio?.getAttribute("src")) {
             if (speechPlaybackState === "playing") {
                 realtimeAudio.pause();
                 setRealtimeSpeaking(false);
