@@ -34,7 +34,7 @@ disagreement, a different angle, a joke, a related idea. Be selective: in roughl
 and never more than two. Only raise a hand when that friend's personality has something genuinely different to add.
 For each hand, write a teaser of at most 8 words, spoken in that friend's personality and in the same language as the
 conversation. It should make the user curious rather than give the whole point away, and may name another friend,
-e.g. "Ooh, I have a sneaky shortcut!", "Hmm, the numbers tell another story." or "I think Jenny is too optimistic."
+e.g. "I have a terrible idea, and you will love it.", "Hmm, the numbers tell another story." or "I think Jenny is too optimistic."
 
 Reply as JSON: {"hands": [{"id": "<friend id>", "teaser": "<teaser>"}]}`;
 
