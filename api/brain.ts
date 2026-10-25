@@ -17,8 +17,50 @@ type Body = {
     tools?: { type: string; name?: string }[];
 };
 
+const MEMORY_MODEL = "gpt-5.4-mini";
+const MEMORY_PROMPT = `You keep the long-term memory of a group of three AI friends (Jenny the warm host, Jinx the smug trickster,
+Smyth the calm scientist) who talk with one user. You get the current notes and a timestamped journal of what was said
+since. Rewrite the notes so they include what matters from the journal. Write in English (quote titles and names as they
+are), plain text, these sections, each a few short bullet points:
+
+About the user: lasting facts, situation, likes and dislikes, plans, people in their life.
+Open threads: things to follow up on, with the date and who it concerns, e.g. "Jinx recommended the film The Thing
+(Sat 18 Oct); ask whether they watched it", "user had a job interview on Tue 21 Oct". Drop threads that were resolved.
+Recent conversations: one line each, newest first, with date and time of day, what it was about and the user's mood.
+Keep the last ten.
+Patterns: only with real evidence across several conversations (e.g. "often low and bored on Saturday evenings").
+
+Keep everything that is still relevant from the old notes, merge duplicates, drop trivia and small talk, and stay under
+600 words. Never invent anything.`;
+
+/** Condenses the journal into the group's long-term notes (see src/utils/memory.ts). */
+async function remember(body: { notes?: unknown; journal?: unknown; now?: unknown }, res: VercelResponse) {
+    const notes = typeof body.notes === "string" ? body.notes.slice(0, 8_000) : "";
+    const journal = typeof body.journal === "string" ? body.journal.slice(-40_000) : "";
+    if (!journal.trim()) return res.status(400).json({ error: "Nothing to remember" });
+    const response = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+            model: MEMORY_MODEL,
+            instructions: MEMORY_PROMPT,
+            input: `Now: ${typeof body.now === "string" ? body.now : "unknown"}\n\nCurrent notes:\n${notes || "(none yet)"}\n\nJournal:\n${journal}`,
+            store: false,
+        }),
+    });
+    const data = await response.json() as { output?: { content?: { type?: string; text?: string }[] }[]; error?: unknown };
+    if (!response.ok) {
+        console.error("Memory error", response.status, JSON.stringify(data.error).slice(0, 500));
+        return res.status(502).json({ error: "Memory model failed" });
+    }
+    const text = (data.output ?? []).flatMap((item) => item.content ?? []).filter((part) => part.type === "output_text").map((part) => part.text).join("");
+    return res.status(200).json({ notes: text.trim() });
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method !== "POST") return res.status(405).send("Method not allowed");
+    // Remembering shares this route: the Hobby plan allows only 12 functions.
+    if ((req.body as { task?: string } | undefined)?.task === "remember") return remember(req.body, res);
     const body = (req.body ?? {}) as Body;
     const model = body.model ?? "";
     if (!MODELS.has(model) || typeof body.instructions !== "string" || !Array.isArray(body.input)) {

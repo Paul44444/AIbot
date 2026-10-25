@@ -27,6 +27,7 @@ import {
 //11062026   from "../utils/loadMixamoAnimation";
 
 //import { startRealtimeVoiceSession } from "../utils/realtimeVoice";
+import { condense, forgetEverything } from "../utils/memory";
 import { useChatLogic }
     from "../hooks/useChatLogic";
 import {
@@ -246,6 +247,7 @@ function LanguagePanel({
                            onSentenceCount,
                            speechLanguage,
                            onSpeechLanguage,
+                           onForgetMemory,
                            selectedTopic,
                            onTopicChange,
                            progress,
@@ -257,6 +259,7 @@ function LanguagePanel({
     onSentenceCount: (count: number) => void;
     speechLanguage: string;
     onSpeechLanguage: (code: string) => void;
+    onForgetMemory: () => void;
     selectedTopic: string;
     onTopicChange: (topic: string) => void;
     progress: any;
@@ -428,6 +431,19 @@ function LanguagePanel({
                     </button>
                 ))}
             </div>
+
+            <h3 style={{ marginTop: 20, fontSize: "0.9rem" }}>Memory:</h3>
+            <p style={{ margin: "0 0 8px", fontSize: "0.8rem", opacity: 0.8 }}>
+                Jenny, Jinx and Smyth remember your conversations (in this browser only), so they can pick up where you left off.
+            </p>
+            <button
+                onClick={() => {
+                    if (window.confirm("Make Jenny, Jinx and Smyth forget everything they remember about you?")) onForgetMemory();
+                }}
+                style={{ width: "100%", fontSize: "0.85rem" }}
+            >
+                Forget everything about me
+            </button>
 
             <div style={{ marginTop: 20, display: "flex", gap: 8 }}>
                 <button
@@ -1205,6 +1221,9 @@ ${topicGuidance}
     };
 
 
+    // What was said shortly before the page last closed is condensed into the memory now.
+    useEffect(() => { void condense(); }, []);
+
     const changeSpeechLanguage = (code: string) => {
         setSpeechLanguage(code);
         speechLanguageRef.current = code;
@@ -1753,6 +1772,7 @@ ${topicGuidance}
                 onSentenceCount={(count) => updateRealtimeSession(count)}
                 speechLanguage={speechLanguage}
                 onSpeechLanguage={changeSpeechLanguage}
+                onForgetMemory={forgetEverything}
                 selectedTopic={selectedTopic}
                 onTopicChange={handleTopicChange}
                 progress={progress}

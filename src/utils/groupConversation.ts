@@ -1,5 +1,6 @@
 import { sendRealtimeText, startRealtimeVoiceSession } from "./realtimeVoice";
 import { describeFeed, loadFeed } from "./characterFeed";
+import { memoryContext, remember } from "./memory";
 import {
     CHARACTERS,
     CHARACTER_BY_ID,
@@ -213,7 +214,7 @@ export class GroupConversation {
         this.interruptAll();
         if (hasBrain(id)) {
             void this.setAddressee(id);
-            void this.think(id, interjectionInstructions(CHARACTER_BY_ID[id], this.settings, teaser));
+            void this.think(id, interjectionInstructions(CHARACTER_BY_ID[id], this.settingsWithMemory(), teaser));
             return;
         }
         const session = await this.connect(id);
@@ -224,7 +225,7 @@ export class GroupConversation {
             type: "response.create",
             response: {
                 output_modalities: outputModalities(id),
-                instructions: interjectionInstructions(CHARACTER_BY_ID[id], this.settings, teaser),
+                instructions: interjectionInstructions(CHARACTER_BY_ID[id], this.settingsWithMemory(), teaser),
             },
         }));
     }
@@ -363,7 +364,7 @@ export class GroupConversation {
             session: {
                 type: "realtime",
                 output_modalities: outputModalities(id),
-                instructions: characterInstructions(CHARACTER_BY_ID[id], this.settings),
+                instructions: characterInstructions(CHARACTER_BY_ID[id], this.settingsWithMemory()),
                 // Real time-stretching; asking for a slower pace in the instructions barely works.
                 audio: {
                     // Guessing the language per utterance mistakes short or quiet German for Japanese or Swedish.
@@ -391,9 +392,20 @@ export class GroupConversation {
         for (const id of this.ready.keys()) if (id !== exceptId) this.inject(id, text);
     }
 
+    /** Adds to the conversation and to the long-term memory. */
+    private addLine(speaker: string, text: string) {
+        this.lines.push({ speaker, text });
+        remember(speaker, text);
+    }
+
+    /** The user's settings plus what the group remembers from earlier conversations. */
+    private settingsWithMemory() {
+        return `${this.settings}\n\n${memoryContext()}`;
+    }
+
     private recordUserLine(text: string, to: CharacterId, heardBy: CharacterId) {
         const speaker = `User to ${CHARACTER_BY_ID[to].name}`;
-        this.lines.push({ speaker, text });
+        this.addLine(speaker, text);
         this.injectIntoOthers(heardBy, `[${speaker}]: ${text}`);
     }
 
@@ -415,7 +427,7 @@ export class GroupConversation {
         this.replies.delete(id);
         if (partial) {
             const name = CHARACTER_BY_ID[id].name;
-            this.lines.push({ speaker: name, text: `${partial} (interrupted)` });
+            this.addLine(name, `${partial} (interrupted)`);
             this.injectIntoOthers(id, `[${name}]: ${partial} (interrupted)`);
         }
         this.callbacks.onReplyStopped(id);
@@ -482,7 +494,7 @@ export class GroupConversation {
         this.sketching = true;
         this.dismissHands();
         const name = CHARACTER_BY_ID[id].name;
-        this.lines.push({ speaker: name, text: `(sketches on the whiteboard: ${request})` });
+        this.addLine(name, `(sketches on the whiteboard: ${request})`);
         this.injectIntoOthers(id, `[${name}]: (sketches on the shared whiteboard: ${request})`);
         this.callbacks.onDiagramRequest({
             id,
@@ -501,7 +513,7 @@ export class GroupConversation {
         // A character with their own model is already being performed while writing.
         if (CHARACTER_BY_ID[id].expressiveVoice && !hasBrain(id)) this.perform(id, performance);
         const name = CHARACTER_BY_ID[id].name;
-        this.lines.push({ speaker: name, text });
+        this.addLine(name, text);
         this.injectIntoOthers(id, `[${name}]: ${text}`);
         this.callbacks.onReplyDone(id, text);
         void this.askDirector(id);
@@ -659,7 +671,7 @@ export class GroupConversation {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     model: character.brainModel,
-                    instructions: instructions ?? characterInstructions(character, this.settings),
+                    instructions: instructions ?? characterInstructions(character, this.settingsWithMemory()),
                     input: await this.brainInput(id),
                     tools: [DRAW_DIAGRAM_TOOL],
                 }),
