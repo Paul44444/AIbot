@@ -236,6 +236,7 @@ const SENTENCE_OPTIONS = [
     { count: 1, label: "short" },
     { count: 3, label: "normal" },
     { count: 5, label: "detailed" },
+    { count: 0, label: "no limit" },
 ];
 
 function LanguagePanel({
@@ -423,7 +424,7 @@ function LanguagePanel({
                             outline: sentenceCount === count ? "2px solid #7aa7ff" : "none",
                         }}
                     >
-                        {count} · {label}
+                        {count ? `${count} · ${label}` : label}
                     </button>
                 ))}
             </div>
@@ -813,6 +814,7 @@ function updateSceneLoadingProgress(progress: number) {
 }
 
 function limitTextToSentences(text: string, maximumSentences: number): string {
+    if (maximumSentences <= 0) return text.trim();
     const minimumMeaningfulCharacters = 15;
     const sentenceEnding = /[.!?。！？]+(?:["'”’」』)\]]*)/gu;
     let sentenceCount = 0;
@@ -911,7 +913,8 @@ export default function Chat({
     const [hands, setHands] = useState<RaisedHand[]>([]);
     const [speechRate, setSpeechRate] = useState(1);
     const speechRateRef = useRef(speechRate);
-    const [sentenceCount, setSentenceCount] = useState(3);
+    // 0 means no limit: the characters take as much room as the topic needs.
+    const [sentenceCount, setSentenceCount] = useState(0);
     const [speechLanguage, setSpeechLanguage] = useState(initialSpeechLanguage);
     const speechLanguageRef = useRef(speechLanguage);
     const sentenceCountRef = useRef(sentenceCount);
@@ -1185,9 +1188,10 @@ export default function Chat({
             : "Speak at a natural conversational pace while remaining clear.";
 
         settingsRef.current = `
-Always answer with no more than ${sentenceCountToUse} sentence${sentenceCountToUse === 1 ? "" : "s"}, unless you were given the floor to jump in.
+${sentenceCountToUse > 0 ? `Always answer with no more than ${sentenceCountToUse} sentence${sentenceCountToUse === 1 ? "" : "s"}, unless you were given the floor to jump in.
 Finish each sentence with normal sentence-ending punctuation. Do not use semicolons or run-on sentences to evade this limit.
-That is a maximum, not a target: answer like a person in a spoken conversation and match the weight of what the user said.
+That is a maximum, not a target: answer` : "Answer"} like a person in a spoken conversation and match the weight of what the user said:
+the more the user brings, the more substance you give back.
 Small talk ("How are you?", "Hi") gets a short, casual reply, often just a few words; then let the user lead.
 Avoid empty filler such as "Great idea!" or "That sounds nice!" on its own.
 ${paceInstruction}

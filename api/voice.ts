@@ -8,7 +8,8 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 const VOICES = new Set([
     "SOYHLrjzK2X1ezoPC6cr", // Harry: young and fierce (Jinx); the highest of the young premade voices
 ]);
-const MAX_TEXT = 700;
+// Long, thoughtful replies must be spoken in full; ElevenLabs v3 takes up to 3,000 characters per request.
+const MAX_TEXT = 2800;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method !== "GET") return res.status(405).send("Method not allowed");
