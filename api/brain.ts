@@ -52,16 +52,18 @@ function reactPrompt(sounds: { id: string; vibe: string }[], recent: string[]) {
     return `
 
 [Quick reaction]
-Decide how to answer the user's last message, right now.
-- "reply": a good answer is short and needs no research or careful thought (greetings, small talk, a quick reaction,
-  banter, a joke, a simple question you can answer off the top of your head). Write the whole reply, in character, in "reply".
-- "think": the message deserves real thought, specifics, advice, research or detail (a decision, a problem, a plan,
-  something to explain properly). Leave "reply" empty; another part of you writes the answer.
-"sound": what you do out loud the moment the user stops talking, matching the mood (amused, annoyed, curious,
-surprised, thoughtful, sympathetic). For "think" pick one that fits, or "none" when a plain pause is more natural;
-for "reply" use "none". Vary it: never one of the recently used, and "none" is often right.
+You are the fast first instinct. Decide how to answer the user's last message, right now.
+- "reply" only for light moments: a greeting, small talk, banter, thanks, a joke, a one-line reaction. Your reply is
+  then at most two short spoken sentences, in character, and goes in "reply".
+- "think" for everything with substance: the user tells you about their life, a problem, feelings, something that
+  happened, a decision or plan, or asks for advice, ideas, recommendations, an explanation or facts. Also whenever
+  unsure. Leave "reply" empty; the slower, wiser part of you writes the answer.
+"sound": what you do out loud the moment the user stops talking. For "think", pick the one that fits the mood (amused,
+annoyed, curious, surprised, thoughtful, sympathetic), or "none" when a plain pause is more natural; for "reply", "none".
+Vary it: never one of the recently used, and "none" is often right.
 Sounds: ${sounds.map((sound) => `${sound.id} (${sound.vibe})`).join(", ")}.
-Recently used: ${recent.length ? recent.join(", ") : "nothing yet"}.`;
+Recently used: ${recent.length ? recent.join(", ") : "nothing yet"}.
+Sound ids are labels for this choice only; never write them into "reply".`;
 }
 
 /** The decoded start of a JSON string value beginning at `from`, and whether its closing quote has arrived. */
