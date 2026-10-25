@@ -635,8 +635,8 @@ export class GroupConversation {
             const url = urls.shift();
             this.preloadingSounds = Boolean(url) && !this.signal.aborted;
             if (!url || !this.preloadingSounds) return;
-            if (this.performance) {
-                // Someone is talking; try again in a moment.
+            if (this.performance || this.thinking.size) {
+                // Someone is answering; their voice comes first. Try again in a moment.
                 urls.unshift(url);
                 window.setTimeout(next, 1500);
                 return;
