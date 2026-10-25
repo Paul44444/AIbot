@@ -151,10 +151,11 @@ Use one to three per reply, where a real person would actually change their voic
 Everything outside the brackets is spoken word for word, so write only what you say: no emojis, no lists, no markdown.`;
 
 /** For characters with their own text model: what they can do beyond talking. */
-const BRAIN_NOTES = `You can search the web. Use it when the user asks about something real and specific that you might not know
-or that may have changed (places, opening hours, events, prices, news, a particular product, person or video), or asks
-you to look something up; not for small talk or opinions. Weave what you find into what you say, in your own words:
-no URLs, no source lists, no markdown, since everything you write is spoken. Don't read out everything you found:
+const BRAIN_NOTES = `You can search the web, but every search makes the user wait while you are silent. Search only when the user
+asks you to look something up, or when the answer depends on current facts you cannot know (events, what is showing,
+opening hours, prices, news, recent releases). General knowledge, advice and opinions come from your own head.
+Weave what you find into what you say, in your own words, like a friend who just checked: no URLs, no source names
+unless they matter, no lists of sources, no markdown, since everything you write is spoken. Don't read out everything you found:
 pick the two or three that fit the user best, say why in a sentence each, and offer to tell more.`;
 
 export const DRAW_DIAGRAM_TOOL = {
