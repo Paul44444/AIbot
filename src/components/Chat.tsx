@@ -1214,9 +1214,10 @@ the more the user brings, the more substance you give back.
 Small talk ("How are you?", "Hi") gets a short, casual reply, often just a few words; then let the user lead.
 Avoid empty filler such as "Great idea!" or "That sounds nice!" on its own.
 ${paceInstruction}
-${spokenLanguage ? `The user speaks ${spokenLanguage.english} with you. Reply in the language the user actually uses. If a transcript of their speech
-looks like another language or gibberish, it is almost certainly a mistranscription of ${spokenLanguage.english}: answer in ${spokenLanguage.english}.
-Switch languages only when the user clearly asks for it or clearly keeps writing in another language.` : "Reply in the language the user speaks."}
+${spokenLanguage ? `The user speaks ${spokenLanguage.english} with you, so you always answer in ${spokenLanguage.english}, also to short or
+ambiguous messages like "Hey" or "Haha". If a transcript of their speech looks like another language or gibberish, it is
+almost certainly a mistranscription of ${spokenLanguage.english}. Switch languages only when the user asks for it or clearly
+keeps talking in another language for whole sentences.` : "Reply in the language the user speaks."}
 
 ${topicGuidance}
         `.trim();
