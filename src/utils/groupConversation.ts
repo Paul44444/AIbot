@@ -31,6 +31,8 @@ export type GroupCallbacks = {
     /** The reply was cut off; whatever was shown so far stays as it is. */
     onReplyStopped: (id: CharacterId) => void;
     onSpeakingChange: (id: CharacterId | null) => void;
+    /** A character is working out their answer (for a thinking look). */
+    onThinkingChange?: (id: CharacterId | null) => void;
     onHands: (hands: RaisedHand[]) => void;
     onAddresseeChange: (id: CharacterId) => void;
     onConnectionError: (id: CharacterId, error: unknown) => void;
@@ -41,6 +43,33 @@ export type GroupCallbacks = {
 const HISTORY_FOR_LATE_JOINERS = 12;
 /** Lines of the conversation a character's own model reads for each reply. */
 const BRAIN_HISTORY = 60;
+/** How long the fast model may take to decide; the big model usually starts writing about then. */
+const DECISION_TIMEOUT = 1800;
+
+type BrainEvent = {
+    type: string;
+    text?: string;
+    name?: string;
+    callId?: string;
+    arguments?: string;
+    mode?: "reply" | "think";
+    sound?: string;
+};
+
+/** The events of a /api/brain stream (newline-separated JSON). */
+async function* brainEvents(response: Response): AsyncGenerator<BrainEvent> {
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) if (line.trim()) yield JSON.parse(line) as BrainEvent;
+    }
+}
 
 /** Characters with an expressive voice reply in text, which /api/voice then performs. */
 function outputModalities(id: CharacterId) {
@@ -123,11 +152,18 @@ export class GroupConversation {
      * An expressive voice performing a reply, piece by piece as it is written; one
      * at a time, like everyone else. `finished` once no more pieces will follow.
      */
-    private performance: { id: CharacterId; pieces: { text: string; audio?: HTMLAudioElement; retried?: boolean }[]; index: number; finished: boolean } | null = null;
+    private performance: { id: CharacterId; pieces: { text: string; audio?: HTMLAudioElement; retried?: boolean; sound?: boolean }[]; index: number; finished: boolean } | null = null;
     /** Whose expressive reply is being fetched or played. */
     private voicing: CharacterId | null = null;
     /** Replies being written by a character's own model. */
     private thinking = new Map<CharacterId, AbortController>();
+    /** Who looks like they are thinking (until the words of their answer start). */
+    private thinkingId: CharacterId | null = null;
+    /** Bridging sounds used lately, so they do not repeat. */
+    private recentSounds: string[] = [];
+    private preloaded = new Map<string, HTMLAudioElement>();
+    private preloadingSounds = false;
+    private lastWarmUp = 0;
     /** Function calls and their results for characters with their own model, kept at their place in the lines. */
     private toolItems = new Map<CharacterId, { at: number; item: Record<string, string> }[]>();
     private directorRun = 0;
@@ -162,6 +198,7 @@ export class GroupConversation {
         this.speed = speed;
         this.language = language;
         for (const [id, session] of this.ready) this.sendInstructions(id, session);
+        this.preloadSounds();
     }
 
     async enableMicrophone() {
@@ -197,7 +234,7 @@ export class GroupConversation {
         if (hasBrain(target)) {
             this.recordUserLine(text, target, target);
             this.callbacks.onUserText(text);
-            void this.think(target);
+            void this.think(target, { quick: true });
             return;
         }
         const session = await this.connect(target);
@@ -214,7 +251,7 @@ export class GroupConversation {
         this.interruptAll();
         if (hasBrain(id)) {
             void this.setAddressee(id);
-            void this.think(id, interjectionInstructions(CHARACTER_BY_ID[id], this.settingsWithMemory(), teaser));
+            void this.think(id, { instructions: interjectionInstructions(CHARACTER_BY_ID[id], this.settingsWithMemory(), teaser) });
             return;
         }
         const session = await this.connect(id);
@@ -447,6 +484,7 @@ export class GroupConversation {
     }
 
     private handleUserSpeechStart() {
+        if (hasBrain(this.addressee)) this.warmUp();
         // The addressed session handles its own barge-in; silence everyone else.
         this.interruptAll(this.addressee);
         // An expressive voice and a model writing elsewhere are outside the session, so they are cut off here.
@@ -465,7 +503,7 @@ export class GroupConversation {
         this.recordUserLine(text, target, heardBy);
         this.callbacks.onUserText(text);
         if (target === heardBy) {
-            if (hasBrain(heardBy)) void this.think(heardBy);
+            if (hasBrain(heardBy)) void this.think(heardBy, { quick: true });
             return;
         }
 
@@ -473,7 +511,7 @@ export class GroupConversation {
         this.stop(heardBy);
         void this.setAddressee(target);
         if (hasBrain(target)) {
-            void this.think(target);
+            void this.think(target, { quick: true });
             return;
         }
         void this.connect(target).then((session) => {
@@ -554,11 +592,11 @@ export class GroupConversation {
         this.performance = { id, pieces: [], index: 0, finished: false };
     }
 
-    /** Queues the next piece of the reply. */
-    private addPiece(text: string) {
+    /** Queues the next piece of the reply; a `sound` bridges the pause before the words. */
+    private addPiece(text: string, sound = false) {
         const performance = this.performance;
         if (!performance || !withoutStageDirections(text)) return;
-        performance.pieces.push({ text: text.trim() });
+        performance.pieces.push({ text: text.trim(), sound });
         const index = performance.pieces.length - 1;
         if (index === performance.index) this.playPiece();
         else if (index === performance.index + 1) this.loadPiece(index);
@@ -572,14 +610,55 @@ export class GroupConversation {
     private loadPiece(index: number) {
         const piece = this.performance?.pieces[index];
         if (!piece || piece.audio) return piece?.audio;
-        piece.audio = new Audio(`/api/voice?${new URLSearchParams({
-            voice: CHARACTER_BY_ID[this.performance!.id].expressiveVoice!,
-            text: piece.text,
-            speed: String(this.speed),
-        })}`);
+        piece.audio = new Audio(this.voiceUrl(this.performance!.id, piece.text));
         piece.audio.preload = "auto";
         piece.audio.setAttribute("playsinline", "true");
         return piece.audio;
+    }
+
+    private voiceUrl(id: CharacterId, text: string) {
+        return `/api/voice?${new URLSearchParams({ voice: CHARACTER_BY_ID[id].expressiveVoice!, text, speed: String(this.speed) })}`;
+    }
+
+    /**
+     * Loads the bridging sounds ahead, so one plays the instant it is picked (the same URL
+     * is then cached). One at a time: the voice service limits simultaneous requests,
+     * and a real answer must not lose its turn to a preload.
+     */
+    private preloadSounds() {
+        if (this.preloadingSounds) return;
+        const urls = CHARACTERS
+            .filter((character) => character.brainModel)
+            .flatMap((character) => this.soundsFor(character.id).map((sound) => this.voiceUrl(character.id, sound.text)))
+            .filter((url) => !this.preloaded.has(url));
+        const next = () => {
+            const url = urls.shift();
+            this.preloadingSounds = Boolean(url) && !this.signal.aborted;
+            if (!url || !this.preloadingSounds) return;
+            if (this.performance) {
+                // Someone is talking; try again in a moment.
+                urls.unshift(url);
+                window.setTimeout(next, 1500);
+                return;
+            }
+            const audio = new Audio();
+            audio.preload = "auto";
+            audio.oncanplaythrough = audio.onerror = () => {
+                audio.oncanplaythrough = audio.onerror = null;
+                next();
+            };
+            audio.src = url;
+            this.preloaded.set(url, audio);
+        };
+        next();
+    }
+
+    /** Wakes the server functions while the user is still talking, so the answer does not wait for a cold start. */
+    private warmUp() {
+        if (Date.now() - this.lastWarmUp < 60_000) return;
+        this.lastWarmUp = Date.now();
+        void fetch("/api/brain", { method: "GET" }).catch(() => {});
+        void fetch("/api/voice").catch(() => {});
     }
 
     private finishPerformance() {
@@ -601,7 +680,12 @@ export class GroupConversation {
             else if (performance.finished) this.endPerformance();
         };
         // Fires again after a pause; only the first start makes them the speaker.
-        audio.onplaying = () => { if (this.performance === performance && this.speaking !== id) this.setSpeaking(id); };
+        audio.onplaying = () => {
+            if (this.performance !== performance) return;
+            if (this.speaking !== id) this.setSpeaking(id);
+            // The thinking look lasts through a bridging sound until the actual answer starts.
+            if (!performance.pieces[performance.index]?.sound && this.thinkingId === id) this.setThinking(null);
+        };
         audio.onended = next;
         audio.onerror = () => {
             if (this.performance !== performance) return;
@@ -627,12 +711,14 @@ export class GroupConversation {
         const id = this.performance?.id;
         this.performance = null;
         this.voicing = null;
+        if (id && this.thinkingId === id && !this.thinking.has(id)) this.setThinking(null);
         if (id && this.speaking === id) this.setSpeaking(null);
         else if (this.pendingHands && !this.speaking) this.showHands(this.pendingHands);
     }
 
     private stopVoice() {
         this.voicing = null;
+        if (this.thinkingId && !this.thinking.has(this.thinkingId)) this.setThinking(null);
         for (const { audio } of this.performance?.pieces ?? []) {
             if (!audio) continue;
             audio.onplaying = audio.onended = audio.onerror = null;
@@ -646,84 +732,142 @@ export class GroupConversation {
     /**
      * Has a character's own model write the reply to the conversation so far,
      * speaking each finished piece while the rest is still being written.
+     *
+     * For the user's turns (`quick`), a small fast model runs alongside: it either
+     * answers at once when that is enough (small talk, banter), or names a sound
+     * to make right away (a breath, "hmm", a laugh, or nothing) while the big
+     * model, already running, writes the real answer. No time is lost either way.
      */
-    private async think(id: CharacterId, instructions?: string) {
+    private async think(id: CharacterId, { instructions, quick = false }: { instructions?: string; quick?: boolean } = {}) {
         const character = CHARACTER_BY_ID[id];
         this.interruptAll(id);
         this.thinking.get(id)?.abort();
         const controller = new AbortController();
         this.thinking.set(id, controller);
         const signal = AbortSignal.any([this.signal, controller.signal]);
+        const deepController = new AbortController();
+        const reactController = new AbortController();
+        this.setThinking(id);
         let written = "";
         let unspoken = "";
-        let performing = false;
-        const speak = (piece: string) => {
-            if (!performing) {
-                this.startPerformance(id);
-                performing = true;
-            }
-            this.addPiece(piece);
+        let spokeWords = false;
+        const speak = (piece: string, sound = false) => {
+            if (!this.performance || this.performance.id !== id) this.startPerformance(id);
+            this.addPiece(piece, sound);
+            if (!sound) spokeWords = true;
         };
-        this.replies.set(id, "");
-        try {
-            const response = await fetch("/api/brain", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    model: character.brainModel,
-                    instructions: instructions ?? characterInstructions(character, this.settingsWithMemory()),
-                    input: await this.brainInput(id),
-                    tools: [DRAW_DIAGRAM_TOOL],
-                }),
-                signal,
-            });
-            if (!response.ok || !response.body) throw new Error(`Brain ${response.status}: ${await response.text()}`);
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = "";
-            for (;;) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split("\n");
-                buffer = lines.pop() ?? "";
-                for (const line of lines) {
-                    if (!line.trim()) continue;
-                    const event = JSON.parse(line) as { type: string; text?: string; name?: string; callId?: string; arguments?: string };
-                    if (event.type === "error") throw new Error("Brain stream failed");
-                    if (event.type === "call" && event.name && event.callId) {
-                        this.toolItems.set(id, [...(this.toolItems.get(id) ?? []), {
-                            at: this.lines.length,
-                            item: { type: "function_call", call_id: event.callId, name: event.name, arguments: event.arguments ?? "{}" },
-                        }]);
-                        this.handleFunctionCall(id, { name: event.name, callId: event.callId, arguments: event.arguments ?? "{}" });
-                    }
-                    if (event.type !== "delta" || !event.text) continue;
-                    written += event.text;
-                    unspoken += event.text;
-                    const shown = speakable(written);
-                    this.replies.set(id, shown);
-                    this.callbacks.onReplyDelta(id, withoutStageDirections(shown));
-                    // The first piece is short so the voice starts early; later ones longer for a natural flow.
-                    let piece: [string, string] | null;
-                    while ((piece = takeSegment(unspoken, performing ? 220 : 40))) {
-                        speak(speakable(piece[0]));
-                        unspoken = piece[1];
-                    }
+        // Speaks and shows a reply stream until it ends; false if it carried no text.
+        const perform = async (events: AsyncGenerator<BrainEvent>) => {
+            for await (const event of events) {
+                if (event.type === "error") throw new Error("Brain stream failed");
+                if (event.type === "call" && event.name && event.callId) {
+                    this.toolItems.set(id, [...(this.toolItems.get(id) ?? []), {
+                        at: this.lines.length,
+                        item: { type: "function_call", call_id: event.callId, name: event.name, arguments: event.arguments ?? "{}" },
+                    }]);
+                    this.handleFunctionCall(id, { name: event.name, callId: event.callId, arguments: event.arguments ?? "{}" });
+                }
+                if (event.type !== "delta" || !event.text) continue;
+                written += event.text;
+                unspoken += event.text;
+                const shown = speakable(written);
+                this.replies.set(id, shown);
+                this.callbacks.onReplyDelta(id, withoutStageDirections(shown));
+                // The first piece is short so the voice starts early; later ones longer for a natural flow.
+                let piece: [string, string] | null;
+                while ((piece = takeSegment(unspoken, spokeWords ? 220 : 40))) {
+                    speak(speakable(piece[0]));
+                    unspoken = piece[1];
                 }
             }
             if (speakable(unspoken).trim()) speak(speakable(unspoken));
-            if (performing) this.finishPerformance();
+            return Boolean(written.trim());
+        };
+        this.replies.set(id, "");
+        try {
+            const input = await this.brainInput(id);
+            const request = (body: object, abort: AbortController) => fetch("/api/brain", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ instructions: instructions ?? characterInstructions(character, this.settingsWithMemory()), input, ...body }),
+                signal: AbortSignal.any([signal, abort.signal]),
+            });
+            const deep = request({ model: character.brainModel, tools: [DRAW_DIAGRAM_TOOL] }, deepController);
+            deep.catch(() => {});
+            const sounds = this.soundsFor(id);
+            const decision = quick && sounds.length ? await this.decide(request({ task: "react", sounds, recent: this.recentSounds }, reactController)) : null;
+            if (decision?.mode === "reply") {
+                deepController.abort();
+                if (!(await perform(decision.rest))) throw new Error("Empty quick reply");
+            } else {
+                reactController.abort();
+                const sound = sounds.find((item) => item.id === decision?.sound);
+                if (sound) {
+                    speak(sound.text, true);
+                    this.recentSounds = [...this.recentSounds, sound.id].slice(-4);
+                }
+                const response = await deep;
+                if (!response.ok || !response.body) throw new Error(`Brain ${response.status}: ${await response.text()}`);
+                await perform(brainEvents(response));
+            }
+            if (this.performance?.id === id) this.finishPerformance();
+            else this.setThinking(null);
             this.handleReplyDone(id);
         } catch (error) {
-            if (controller.signal.aborted || this.signal.aborted) return;
+            deepController.abort();
+            reactController.abort();
+            if (controller.signal.aborted || this.signal.aborted) {
+                // Cut off; unless a new answer already took over, stop looking thoughtful.
+                if (this.thinking.get(id) === controller) this.setThinking(null);
+                return;
+            }
             console.error(`${character.name} could not think:`, error);
             this.replies.delete(id);
-            if (performing) this.finishPerformance();
+            this.setThinking(null);
+            if (this.performance?.id === id) this.finishPerformance();
             this.callbacks.onConnectionError(id, error);
         } finally {
             if (this.thinking.get(id) === controller) this.thinking.delete(id);
         }
+    }
+
+    /**
+     * Waits for the fast model's decision, at most as long as the big model usually
+     * needs to start; without one in time, the big model just answers.
+     */
+    private async decide(response: Promise<Response>) {
+        try {
+            const result = await Promise.race([
+                (async () => {
+                    const reply = await response;
+                    if (!reply.ok || !reply.body) return null;
+                    const events = brainEvents(reply);
+                    // Read by hand: leaving a for-await loop would close the stream the reply still comes through.
+                    for (;;) {
+                        const { done, value: event } = await events.next();
+                        if (done || event.type === "error") return null;
+                        if (event.type === "decision") return { mode: event.mode, sound: event.sound, rest: events };
+                    }
+                })().catch(() => null),
+                new Promise<null>((resolve) => window.setTimeout(() => resolve(null), DECISION_TIMEOUT)),
+            ]);
+            return result;
+        } catch {
+            return null;
+        }
+    }
+
+    /** The character's sounds that fit the conversation language. */
+    private soundsFor(id: CharacterId) {
+        return (CHARACTER_BY_ID[id].sounds ?? [])
+            .filter((sound) => !sound.lang || sound.lang === this.language)
+            .map(({ id: soundId, text, vibe }) => ({ id: soundId, text, vibe }));
+    }
+
+    private setThinking(id: CharacterId | null) {
+        if (this.thinkingId === id) return;
+        this.thinkingId = id;
+        this.callbacks.onThinkingChange?.(id);
     }
 
     /** The conversation as the character's model reads it: their own lines as theirs, everyone else's as heard. */

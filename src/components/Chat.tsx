@@ -926,6 +926,7 @@ export default function Chat({
     // Who the microphone and typed messages go to; others join when given the floor.
     const [addressee, setAddressee] = useState<CharacterId>("jenny");
     const [speakingId, setSpeakingId] = useState<CharacterId | null>(null);
+    const [thinkingId, setThinkingId] = useState<CharacterId | null>(null);
     const [hands, setHands] = useState<RaisedHand[]>([]);
     const [speechRate, setSpeechRate] = useState(1);
     const speechRateRef = useRef(speechRate);
@@ -1080,6 +1081,7 @@ export default function Chat({
                 setSpeechPlaybackState(id ? "playing" : "idle");
                 if (id) setSpeechPreparing(false);
             },
+            onThinkingChange: setThinkingId,
             onHands: setHands,
             onAddresseeChange: setAddressee,
             onDiagramRequest: (request) => { void drawDiagram(request); },
@@ -1577,6 +1579,7 @@ ${topicGuidance}
                 <Suspense fallback={null}>
                     <LazySceneView
                         speakingId={speakingText !== null ? addressee : realtimeSpeaking ? speakingId : null}
+                        thinkingId={thinkingId}
                         addresseeId={addressee}
                         expression={currentExpression}
                         onProgress={updateSceneLoadingProgress}

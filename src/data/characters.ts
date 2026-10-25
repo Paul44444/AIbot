@@ -1,5 +1,16 @@
 export type CharacterId = "jenny" | "jinx" | "smyth";
 
+/** Something a character says or does out loud the moment the user stops talking, while their answer is still being written. */
+export type Sound = {
+    id: string;
+    /** Performed by the expressive voice; stage directions in brackets. */
+    text: string;
+    /** When it fits, for the model picking one. */
+    vibe: string;
+    /** Only for this conversation language; sounds without words fit any. */
+    lang?: string;
+};
+
 export type Character = {
     id: CharacterId;
     name: string;
@@ -16,6 +27,8 @@ export type Character = {
      * for more substance and web search. Needs an expressiveVoice to be heard.
      */
     brainModel?: string;
+    /** Sounds to bridge the pause while the brain model thinks (see Sound). */
+    sounds?: Sound[];
     avatarUrl: string;
     color: string;
     /** Shown in the hover card in the 3D scene. */
@@ -46,6 +59,29 @@ You sometimes gently moderate: you summarize, invite the user's opinion, or teas
         voice: "ash",
         expressiveVoice: "SOYHLrjzK2X1ezoPC6cr",
         brainModel: "gpt-6.1-sol",
+        sounds: [
+            { id: "hmm", text: "[thoughtful] Hmm…", vibe: "neutral thinking hum" },
+            { id: "breath", text: "[inhales deeply] Mh.", vibe: "audible breath in, gathering thoughts for something bigger" },
+            { id: "sigh", text: "[sighs] Pff.", vibe: "bored or exasperated" },
+            { id: "chuckle", text: "[chuckles] Heh.", vibe: "amused, a bit mean" },
+            { id: "laugh", text: "[laughs] Ha!", vibe: "really amused, schadenfreude" },
+            { id: "oh", text: "[curious] Oh?", vibe: "surprised and curious, wants the details" },
+            { id: "smug", text: "[smirks] Mhm.", vibe: "knowing, smug" },
+            { id: "ugh", text: "[disgusted] Ugh.", vibe: "disgust or annoyance at what happened" },
+            { id: "tss", text: "[unimpressed] Tss.", vibe: "unimpressed, dismissive" },
+            { id: "okay", text: "[thoughtful] Okay… mh.", vibe: "taking it in", lang: "de" },
+            { id: "na_ja", text: "[skeptical] Na ja…", vibe: "skeptical", lang: "de" },
+            { id: "moment", text: "[thoughtful] Moment…", vibe: "working something out", lang: "de" },
+            { id: "ueberlegen", text: "[inhales] Lass mich kurz überlegen.", vibe: "a bigger question that needs a moment", lang: "de" },
+            { id: "verstehe", text: "Ah. Verstehe.", vibe: "taking in news, a bit more serious", lang: "de" },
+            { id: "oha", text: "[impressed] Oha.", vibe: "impressed or alarmed", lang: "de" },
+            { id: "okay", text: "[thoughtful] Okay… mm.", vibe: "taking it in", lang: "en" },
+            { id: "well", text: "[skeptical] Well…", vibe: "skeptical", lang: "en" },
+            { id: "hold_on", text: "[thoughtful] Hold on…", vibe: "working something out", lang: "en" },
+            { id: "let_me_think", text: "[inhales] Let me think.", vibe: "a bigger question that needs a moment", lang: "en" },
+            { id: "i_see", text: "Ah. I see.", vibe: "taking in news, a bit more serious", lang: "en" },
+            { id: "whoa", text: "[impressed] Whoa.", vibe: "impressed or alarmed", lang: "en" },
+        ],
         avatarUrl: "/model/human11.vrm",
         color: "#ffb35c",
         tagline: "Smug, sharp and brutally honest — the friend who says what nobody else will.",
@@ -155,7 +191,9 @@ const BRAIN_NOTES = `You can search the web, but every search makes the user wai
 asks you to look something up, or when the answer depends on current facts you cannot know (events, what is showing,
 opening hours, prices, news, recent releases). General knowledge, advice and opinions come from your own head.
 Weave what you find into what you say, in your own words, like a friend who just checked: no URLs, no source names
-unless they matter, no lists of sources, no markdown, since everything you write is spoken. Don't read out everything you found:
+unless they matter, no lists of sources, no markdown, since everything you write is spoken.
+Your answer may follow right after a brief sound you already made (a breath, "hmm", a laugh, "okay");
+never open with such a filler yourself, start with the actual point. Don't read out everything you found:
 pick the two or three that fit the user best, say why in a sentence each, and offer to tell more.`;
 
 export const DRAW_DIAGRAM_TOOL = {

@@ -36,6 +36,8 @@ import { CHARACTER_BY_ID, type Character as GroupMember, type CharacterId } from
 
 type SceneViewProps = {
     speakingId: CharacterId | null;
+    /** Who is working out their answer (looks away, frowns a little). */
+    thinkingId: CharacterId | null;
     addresseeId: CharacterId;
     expression: string;
     onProgress: (progress: number) => void;
@@ -70,7 +72,7 @@ function stepIndex(kind: "room" | "avatar", id: CharacterId) {
     return LOAD_STEPS.findIndex((step) => step.kind === kind && step.id === id);
 }
 
-export default function SceneView({ speakingId, addresseeId, expression, onProgress, onNavigate, focusPcId, onFocusPc, onOpenYouTube, outside, onOutsideChange }: SceneViewProps) {
+export default function SceneView({ speakingId, thinkingId, addresseeId, expression, onProgress, onNavigate, focusPcId, onFocusPc, onOpenYouTube, outside, onOutsideChange }: SceneViewProps) {
     const [settledKey, setSettledKey] = useState<string | null>(null);
     const [step, setStep] = useState(0);
     const finishStep = useCallback((index: number) => {
@@ -168,6 +170,7 @@ export default function SceneView({ speakingId, addresseeId, expression, onProgr
                             key={`avatar-${loadStep.id}`}
                             character={CHARACTER_BY_ID[loadStep.id]}
                             isSpeaking={speakingId === loadStep.id}
+                            isThinking={thinkingId === loadStep.id}
                             isAddressed={addresseeId === loadStep.id}
                             expression={speakingId === loadStep.id ? expression : "relaxed"}
                             onReady={() => finishStep(index)}
@@ -764,6 +767,7 @@ function loadIdleAnimation() {
 function Character({
     character,
     isSpeaking,
+    isThinking,
     isAddressed,
     expression,
     onReady,
@@ -771,6 +775,7 @@ function Character({
 }: {
     character: GroupMember;
     isSpeaking: boolean;
+    isThinking: boolean;
     isAddressed: boolean;
     expression: string;
     onReady: () => void;
@@ -860,6 +865,8 @@ function Character({
 
     const lookTarget = useRef(new THREE.Vector3());
     const restingView = useMemo(() => viewOf(character.id, 1600, 900).position, [character.id]);
+    /** 0–1, eases in and out: how much they look like they are thinking. */
+    const thought = useRef(0);
     const settled = useRef(false);
 
     useFrame((_, delta) => {
@@ -893,9 +900,15 @@ function Character({
         const turn = Math.atan2(Math.sin(yaw - current), Math.cos(yaw - current));
         group.current.rotation.y = current + turn * (1 - Math.exp(-4 * delta));
 
+        thought.current += ((isThinking ? 1 : 0) - thought.current) * (1 - Math.exp(-5 * delta));
+        const pondering = thought.current;
+
         if (vrm.lookAt) {
             if (userHere) camera.getWorldPosition(lookTarget.current);
             else lookTarget.current.copy(restingView);
+            // Thinking: eyes drift up and to the side, away from the person, as people do.
+            lookTarget.current.addScaledVector(SCREEN_RIGHT, 0.9 * pondering);
+            lookTarget.current.y += 0.7 * pondering;
             vrm.lookAt.lookAt(lookTarget.current);
         }
 
@@ -909,8 +922,17 @@ function Character({
         }
         // The addressed friend looks a little more attentive.
         vrm.expressionManager?.setValue(expression, expression === "relaxed" ? (isAddressed ? 0.35 : 0.2) : expression === "happy" ? 0.5 : 1);
+        // A slight frown while working something out.
+        if (pondering > 0.01) vrm.expressionManager?.setValue("angry", Math.max(vrm.expressionManager.getValue("angry") ?? 0, 0.22 * pondering));
 
         mixerRef.current?.update(delta);
+        // On top of the idle animation: the head tilts and lifts a little while thinking.
+        const head = pondering > 0.01 ? vrm.humanoid.getNormalizedBoneNode("head") : null;
+        if (head) {
+            head.rotation.z += 0.14 * pondering;
+            head.rotation.x -= 0.1 * pondering;
+            head.rotation.y += 0.12 * pondering;
+        }
         vrm.update(delta);
     });
 
