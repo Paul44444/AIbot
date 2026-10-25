@@ -154,7 +154,8 @@ Everything outside the brackets is spoken word for word, so write only what you 
 const BRAIN_NOTES = `You can search the web. Use it when the user asks about something real and specific that you might not know
 or that may have changed (places, opening hours, events, prices, news, a particular product, person or video), or asks
 you to look something up; not for small talk or opinions. Weave what you find into what you say, in your own words:
-no URLs, no source lists, no markdown, since everything you write is spoken.`;
+no URLs, no source lists, no markdown, since everything you write is spoken. Don't read out everything you found:
+pick the two or three that fit the user best, say why in a sentence each, and offer to tell more.`;
 
 export const DRAW_DIAGRAM_TOOL = {
     type: "function",

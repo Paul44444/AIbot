@@ -116,7 +116,7 @@ export class GroupConversation {
      * An expressive voice performing a reply, piece by piece as it is written; one
      * at a time, like everyone else. `finished` once no more pieces will follow.
      */
-    private performance: { id: CharacterId; pieces: HTMLAudioElement[]; index: number; finished: boolean } | null = null;
+    private performance: { id: CharacterId; pieces: { text: string; audio?: HTMLAudioElement }[]; index: number; finished: boolean } | null = null;
     /** Whose expressive reply is being fetched or played. */
     private voicing: CharacterId | null = null;
     /** Replies being written by a character's own model. */
@@ -146,7 +146,7 @@ export class GroupConversation {
     }
 
     speakingAudio() {
-        if (this.speaking && this.speaking === this.voicing) return this.performance?.pieces[this.performance.index] ?? null;
+        if (this.speaking && this.speaking === this.voicing) return this.performance?.pieces[this.performance.index]?.audio ?? null;
         return this.speaking ? this.ready.get(this.speaking)?.audioEl ?? null : null;
     }
 
@@ -536,19 +536,32 @@ export class GroupConversation {
         this.performance = { id, pieces: [], index: 0, finished: false };
     }
 
-    /** Queues the next piece; it starts loading right away, so pieces follow without a gap. */
+    /** Queues the next piece of the reply. */
     private addPiece(text: string) {
         const performance = this.performance;
         if (!performance || !withoutStageDirections(text)) return;
-        const audio = new Audio(`/api/voice?${new URLSearchParams({
-            voice: CHARACTER_BY_ID[performance.id].expressiveVoice!,
-            text: text.trim(),
+        performance.pieces.push({ text: text.trim() });
+        const index = performance.pieces.length - 1;
+        if (index === performance.index) this.playPiece();
+        else if (index === performance.index + 1) this.loadPiece(index);
+    }
+
+    /**
+     * Starts fetching a piece's audio. Only the playing piece and the next one load at a
+     * time: enough for no gap between them, and within the voice service's limit on
+     * simultaneous requests (more fail outright).
+     */
+    private loadPiece(index: number) {
+        const piece = this.performance?.pieces[index];
+        if (!piece || piece.audio) return piece?.audio;
+        piece.audio = new Audio(`/api/voice?${new URLSearchParams({
+            voice: CHARACTER_BY_ID[this.performance!.id].expressiveVoice!,
+            text: piece.text,
             speed: String(this.speed),
         })}`);
-        audio.preload = "auto";
-        audio.setAttribute("playsinline", "true");
-        performance.pieces.push(audio);
-        if (performance.pieces.length - 1 === performance.index) this.playPiece();
+        piece.audio.preload = "auto";
+        piece.audio.setAttribute("playsinline", "true");
+        return piece.audio;
     }
 
     private finishPerformance() {
@@ -559,8 +572,9 @@ export class GroupConversation {
 
     private playPiece() {
         const performance = this.performance;
-        const audio = performance?.pieces[performance.index];
+        const audio = performance ? this.loadPiece(performance.index) : undefined;
         if (!performance || !audio) return;
+        this.loadPiece(performance.index + 1);
         const { id } = performance;
         const next = () => {
             if (this.performance !== performance) return;
@@ -592,7 +606,8 @@ export class GroupConversation {
 
     private stopVoice() {
         this.voicing = null;
-        for (const audio of this.performance?.pieces ?? []) {
+        for (const { audio } of this.performance?.pieces ?? []) {
+            if (!audio) continue;
             audio.onplaying = audio.onended = audio.onerror = null;
             audio.pause();
             audio.removeAttribute("src");
