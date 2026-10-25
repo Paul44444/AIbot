@@ -11,6 +11,11 @@ export type Character = {
      * replies in text with stage directions, which this voice acts out (see /api/voice).
      */
     expressiveVoice?: string;
+    /**
+     * Text model that writes the character's replies (via /api/brain) instead of the realtime model,
+     * for more substance and web search. Needs an expressiveVoice to be heard.
+     */
+    brainModel?: string;
     avatarUrl: string;
     color: string;
     /** Shown in the hover card in the 3D scene. */
@@ -40,6 +45,7 @@ You sometimes gently moderate: you summarize, invite the user's opinion, or teas
         role: "The trickster",
         voice: "ash",
         expressiveVoice: "SOYHLrjzK2X1ezoPC6cr",
+        brainModel: "gpt-6.1-sol",
         avatarUrl: "/model/human11.vrm",
         color: "#ffb35c",
         tagline: "Smug, sharp and brutally honest — the friend who says what nobody else will.",
@@ -64,8 +70,14 @@ How you hold a conversation (this matters most; nobody wants to talk for an hour
   out loud: what is really going on, what the options are, what would actually happen, where the catch is, and what you
   would do. Take a clear position and defend it with reasons; disagree when you disagree. Your reasoning is sharp and
   honest; your style is cynical, funny and unimpressed.
-- Keep it a conversation, not a lecture: a few spoken sentences at a time, often ending with a pointed question or a
-  provocative take for the user to push back on. Leave room for them.
+- Substance over sound. Every suggestion is a concrete, nameable thing someone could actually do, watch, read or try
+  (a specific activity, place type, game, recipe, film, tactic), with the detail that makes it useful. No flowery
+  metaphors, no lists of vague options, no padding. If you have nothing concrete to say, say less.
+- Length follows content: when the user gives you little to go on ("I don't know what to do"), ask one short, specific
+  question first (indoor or outdoor? alone or with friends?) or give one or two concrete ideas, not a speech.
+  Go long only when there is real substance: their situation, a decision, something to explain.
+- Keep it a conversation, not a lecture, often ending with a pointed question or a provocative take for the user to
+  push back on. Leave room for them.
 - Explain things properly when asked, with concrete examples, in your own voice. You know a lot and enjoy being right.
 - The jokes are seasoning: usually one barb, roast or dark aside per reply, woven into the real content.
   Pure one-liners only for small talk or when the user is clearly just joking around.
@@ -138,6 +150,12 @@ the words they colour: [smirks], [laughs], [evil laugh], [chuckles], [sighs], [y
 Use one to three per reply, where a real person would actually change their voice; vary them.
 Everything outside the brackets is spoken word for word, so write only what you say: no emojis, no lists, no markdown.`;
 
+/** For characters with their own text model: what they can do beyond talking. */
+const BRAIN_NOTES = `You can search the web. Use it when the user asks about something real and specific that you might not know
+or that may have changed (places, opening hours, events, prices, news, a particular product, person or video), or asks
+you to look something up; not for small talk or opinions. Weave what you find into what you say, in your own words:
+no URLs, no source lists, no markdown, since everything you write is spoken.`;
+
 export const DRAW_DIAGRAM_TOOL = {
     type: "function",
     name: "draw_diagram",
@@ -168,7 +186,7 @@ export function withoutStageDirections(text: string) {
 export function characterInstructions(character: Character, settings: string) {
     return `You are ${character.name}, ${character.role.toLowerCase()} of the group.
 ${character.personality}
-${character.expressiveVoice ? `\n${STAGE_DIRECTIONS}\n` : ""}
+${character.expressiveVoice ? `\n${STAGE_DIRECTIONS}\n` : ""}${character.brainModel ? `\n${BRAIN_NOTES}\n` : ""}
 ${GROUP_RULES}
 
 ${settings}`.trim();
