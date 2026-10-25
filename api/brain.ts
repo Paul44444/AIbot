@@ -24,11 +24,13 @@ since. Rewrite the notes so they include what matters from the journal. Write in
 are), plain text, these sections, each a few short bullet points:
 
 About the user: lasting facts, situation, likes and dislikes, plans, people in their life.
-Open threads: things to follow up on, with the date and who it concerns, e.g. "Jinx recommended the film The Thing
-(Sat 18 Oct); ask whether they watched it", "user had a job interview on Tue 21 Oct". Drop threads that were resolved.
-Recent conversations: one line each, newest first, with date and time of day, what it was about and the user's mood.
-Keep the last ten.
-Patterns: only with real evidence across several conversations (e.g. "often low and bored on Saturday evenings").
+Open threads: things to follow up on, with the date and which friend it belongs to (whoever recommended, promised or
+was told it), e.g. "Jinx recommended the film The Thing (Sat 18 Oct); Jinx should ask whether they watched it",
+"user has a job interview on Tue 21 Oct; told Jenny they are nervous". Drop threads that were resolved.
+Recent conversations: one line per conversation (lines without a long pause belong to the same one), newest first,
+with date and time of day, who the user talked with, what it was about and the user's mood. Keep the last ten.
+Patterns: only when the journal and the recent conversations show it on at least three different days
+(e.g. "low and bored on Saturday evenings: 4, 11 and 18 Oct"); otherwise leave this section out.
 
 Keep everything that is still relevant from the old notes, merge duplicates, drop trivia and small talk, and stay under
 600 words. Never invent anything.`;
