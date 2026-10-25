@@ -60,6 +60,9 @@ function speakable(text: string) {
         .replace(/\*\*|__|^#+\s*/gm, "");
 }
 
+/** Words before a dot that usually do not end a sentence. */
+const NOT_SENTENCE_ENDS = /^(?:[A-Za-zÄÖÜäöü]|z|ca|bzw|usw|etc|evtl|ggf|inkl|vgl|Nr|Dr|Prof|St|Mio|Mrd|u\.a|z\.B|d\.h|vs|Mr|Mrs|Ms|e\.g|i\.e)$/i;
+
 /**
  * The next piece of a reply worth sending to the voice: the first as soon as one
  * sentence is complete (to start talking early), later ones in bigger chunks so the
@@ -71,6 +74,9 @@ function takeSegment(text: string, minimumLength: number): [string, string] | nu
     while ((match = sentenceEnd.exec(text)) !== null) {
         const end = match.index + match[0].length;
         if (end < minimumLength) continue;
+        // "19. Oktober", "z. B.", "ca." end with a dot but not the sentence.
+        const before = text.slice(0, match.index).match(/(\S+)$/)?.[1] ?? "";
+        if (match[0].startsWith(".") && (/\d$/.test(before) || NOT_SENTENCE_ENDS.test(before))) continue;
         const piece = text.slice(0, end);
         if (piece.lastIndexOf("[") > piece.lastIndexOf("]")) continue;
         return [piece, text.slice(end)];
@@ -116,7 +122,7 @@ export class GroupConversation {
      * An expressive voice performing a reply, piece by piece as it is written; one
      * at a time, like everyone else. `finished` once no more pieces will follow.
      */
-    private performance: { id: CharacterId; pieces: { text: string; audio?: HTMLAudioElement }[]; index: number; finished: boolean } | null = null;
+    private performance: { id: CharacterId; pieces: { text: string; audio?: HTMLAudioElement; retried?: boolean }[]; index: number; finished: boolean } | null = null;
     /** Whose expressive reply is being fetched or played. */
     private voicing: CharacterId | null = null;
     /** Replies being written by a character's own model. */
@@ -586,7 +592,16 @@ export class GroupConversation {
         audio.onplaying = () => { if (this.performance === performance && this.speaking !== id) this.setSpeaking(id); };
         audio.onended = next;
         audio.onerror = () => {
-            if (this.performance === performance) console.error(`${CHARACTER_BY_ID[id].name}'s voice failed:`, audio.error);
+            if (this.performance !== performance) return;
+            const piece = performance.pieces[performance.index];
+            // One more try (the voice service sometimes refuses a request), then skip the piece.
+            if (piece && !piece.retried) {
+                piece.retried = true;
+                piece.audio = undefined;
+                this.playPiece();
+                return;
+            }
+            console.error(`${CHARACTER_BY_ID[id].name}'s voice failed:`, audio.error);
             next();
         };
         void audio.play().catch((error) => {
