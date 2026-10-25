@@ -130,8 +130,9 @@ export function memoryContext() {
     return `[Memory]\n${parts.join("\n\n")}
 
 Use this like a friend who remembers, not like a database: weave it in when it fits, never recite it, and never mention
-notes or memory. At the start of a new conversation, if something is open that concerns you (something you recommended,
-a plan or worry the user mentioned), bring it up naturally, e.g. ask how it went.`;
+notes or memory. In your first reply of a new conversation, if an open thread belongs to you (something you recommended,
+or a plan or worry the user told you about), greet the user and ask about it right away, like a friend would
+("Hey! So, did you watch The Thing?"). Only one thread at a time; the rest can come up later.`;
 }
 
 /** Forgets everything the group remembers about the user. */
