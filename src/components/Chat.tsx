@@ -584,12 +584,26 @@ function OutdoorHelp() {
     );
 }
 
+/** What to tell the user when the microphone could not be switched on, instead of failing silently. */
+function microphoneErrorMessage(error: unknown) {
+    const name = error instanceof DOMException ? error.name : "";
+    if (name === "NotAllowedError" || name === "SecurityError") {
+        // Chrome also takes the permission back from sites that were not visited for a while.
+        return "Your browser is blocking the microphone. Click the icon left of the address bar, allow the microphone, then try again.";
+    }
+    if (name === "NotFoundError" || name === "OverconstrainedError") return "No microphone found. Plug one in or check your system's sound settings.";
+    if (name === "NotReadableError" || name === "AbortError") return "The microphone is busy or unavailable. Close other apps using it, then try again.";
+    return "The voice chat could not connect. Please try again in a moment.";
+}
+
 function ChatInput({
                            input,
                            setInput,
                            sendMessage,
                            microphoneEnabled,
                            microphoneConnecting,
+                           microphoneError,
+                           onDismissMicrophoneError,
                            toggleMicrophone,
                            onFocusInput,
                        }: {
@@ -598,6 +612,8 @@ function ChatInput({
         sendMessage: () => void | Promise<void>;
         microphoneEnabled: boolean;
         microphoneConnecting: boolean;
+        microphoneError: string | null;
+        onDismissMicrophoneError: () => void;
         toggleMicrophone: () => void | Promise<void>;
         onFocusInput: () => void;
     }) {
@@ -627,7 +643,21 @@ function ChatInput({
                     </button>
 
                     <div className="microphoneControl">
-                        {!microphoneEnabled && !microphonePromptDismissed && (
+                        {microphoneError && (
+                            <div className="microphonePrompt microphoneError" role="alert">
+                                <p>{microphoneError}</p>
+                                <button
+                                    className="microphonePromptClose"
+                                    type="button"
+                                    onClick={onDismissMicrophoneError}
+                                    aria-label="Dismiss microphone message"
+                                    title="Dismiss"
+                                >
+                                    ×
+                                </button>
+                            </div>
+                        )}
+                        {!microphoneError && !microphoneEnabled && !microphonePromptDismissed && (
                             <div className="microphonePrompt" role="status">
                                 <button
                                     className="microphonePromptAction"
@@ -874,6 +904,7 @@ export default function Chat({
     // silently ignored (notably when permission had not already been granted).
     const [microphoneEnabled, setMicrophoneEnabled] = useState(false);
     const [microphoneConnecting, setMicrophoneConnecting] = useState(false);
+    const [microphoneError, setMicrophoneError] = useState<string | null>(null);
     // Who the microphone and typed messages go to; others join when given the floor.
     const [addressee, setAddressee] = useState<CharacterId>("jenny");
     const [speakingId, setSpeakingId] = useState<CharacterId | null>(null);
@@ -1103,6 +1134,7 @@ export default function Chat({
         }
 
         setMicrophoneConnecting(true);
+        setMicrophoneError(null);
         try {
             await group.enableMicrophone();
             if (!signal.aborted) setMicrophoneEnabled(true);
@@ -1110,6 +1142,7 @@ export default function Chat({
             if (signal.aborted) return;
             console.error("Could not enable the microphone:", error);
             setMicrophoneEnabled(false);
+            setMicrophoneError(microphoneErrorMessage(error));
         } finally {
             if (!signal.aborted) setMicrophoneConnecting(false);
         }
@@ -1728,6 +1761,8 @@ ${topicGuidance}
                 sendMessage={sendTypedMessage}
                 microphoneEnabled={microphoneEnabled}
                 microphoneConnecting={microphoneConnecting}
+                microphoneError={microphoneError}
+                onDismissMicrophoneError={() => setMicrophoneError(null)}
                 toggleMicrophone={toggleMicrophone}
                 onFocusInput={() => void ensureGroup().connect(addressee).catch(() => {})}
             />

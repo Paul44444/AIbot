@@ -1274,6 +1274,21 @@ button:focus-visible {
     border-top-color: rgba(31, 43, 68, 0.96);
 }
 
+.microphoneError {
+    align-items: flex-start;
+    width: min(320px, calc(100vw - 32px));
+    white-space: normal;
+    border-color: rgba(255, 150, 130, 0.85);
+    animation: none;
+}
+
+.microphoneError p {
+    margin: 0;
+    padding: 10px 4px 10px 12px;
+    font-size: 0.9rem;
+    line-height: 1.4;
+}
+
 .microphonePromptAction,
 .microphonePromptClose {
     border: 0;
