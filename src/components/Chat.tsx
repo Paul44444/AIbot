@@ -40,7 +40,7 @@ import {
     type SpeechPlaybackState,
 } from "../utils/speakText";
 
-import { GroupConversation, type DiagramRequest, type RaisedHand } from "../utils/groupConversation";
+import { GroupConversation, warmUpBrain, type DiagramRequest, type RaisedHand } from "../utils/groupConversation";
 import type { DiagramSpec } from "../types/diagram";
 import type { DiagramState, SketchEntry, SketchLibrary } from "./DiagramPanel";
 import type { YouTubeHandle, YouTubeRequest } from "./YouTubePanel";
@@ -1156,6 +1156,7 @@ export default function Chat({
 
         setMicrophoneConnecting(true);
         setMicrophoneError(null);
+        warmUpBrain();
         try {
             await group.enableMicrophone();
             if (!signal.aborted) setMicrophoneEnabled(true);
@@ -1791,7 +1792,10 @@ ${topicGuidance}
                 microphoneError={microphoneError}
                 onDismissMicrophoneError={() => setMicrophoneError(null)}
                 toggleMicrophone={toggleMicrophone}
-                onFocusInput={() => void ensureGroup().connect(addressee).catch(() => {})}
+                onFocusInput={() => {
+                    warmUpBrain();
+                    void ensureGroup().connect(addressee).catch(() => {});
+                }}
             />
 
         </div>

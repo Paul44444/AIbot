@@ -56,6 +56,19 @@ type BrainEvent = {
     sound?: string;
 };
 
+let lastWarmUp = 0;
+
+/**
+ * Wakes the server functions behind the characters with their own model while the
+ * user is still talking or typing, so the answer does not wait for a cold start.
+ */
+export function warmUpBrain() {
+    if (Date.now() - lastWarmUp < 60_000 || !CHARACTERS.some((character) => character.brainModel)) return;
+    lastWarmUp = Date.now();
+    void fetch("/api/brain", { method: "GET" }).catch(() => {});
+    void fetch("/api/voice").catch(() => {});
+}
+
 /** The events of a /api/brain stream (newline-separated JSON). */
 async function* brainEvents(response: Response): AsyncGenerator<BrainEvent> {
     const reader = response.body!.getReader();
@@ -163,7 +176,6 @@ export class GroupConversation {
     private recentSounds: string[] = [];
     private preloaded = new Map<string, HTMLAudioElement>();
     private preloadingSounds = false;
-    private lastWarmUp = 0;
     /** Function calls and their results for characters with their own model, kept at their place in the lines. */
     private toolItems = new Map<CharacterId, { at: number; item: Record<string, string> }[]>();
     private directorRun = 0;
@@ -484,7 +496,7 @@ export class GroupConversation {
     }
 
     private handleUserSpeechStart() {
-        if (hasBrain(this.addressee)) this.warmUp();
+        if (hasBrain(this.addressee)) warmUpBrain();
         // The addressed session handles its own barge-in; silence everyone else.
         this.interruptAll(this.addressee);
         // An expressive voice and a model writing elsewhere are outside the session, so they are cut off here.
@@ -651,14 +663,6 @@ export class GroupConversation {
             this.preloaded.set(url, audio);
         };
         next();
-    }
-
-    /** Wakes the server functions while the user is still talking, so the answer does not wait for a cold start. */
-    private warmUp() {
-        if (Date.now() - this.lastWarmUp < 60_000) return;
-        this.lastWarmUp = Date.now();
-        void fetch("/api/brain", { method: "GET" }).catch(() => {});
-        void fetch("/api/voice").catch(() => {});
     }
 
     private finishPerformance() {
