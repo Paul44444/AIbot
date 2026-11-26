@@ -89,7 +89,12 @@ export async function streamClaude(
             // The query of a web search arrives in pieces.
             let query: string | null = null;
             for await (const event of stream) {
-                if (event.type === "content_block_start" && event.content_block.type === "server_tool_use") query = "";
+                if (event.type === "content_block_start" && event.content_block.type === "server_tool_use") {
+                    // The query comes either whole with the start of the block or in pieces after it.
+                    const start = (event.content_block.input as { query?: string } | undefined)?.query;
+                    if (start) send(res, { type: "search", text: start });
+                    else query = "";
+                }
                 if (event.type === "content_block_delta" && event.delta.type === "input_json_delta" && query !== null) query += event.delta.partial_json;
                 if (event.type === "content_block_stop" && query !== null) {
                     try {
