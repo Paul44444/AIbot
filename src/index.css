@@ -139,15 +139,23 @@ button:focus-visible {
 }
 
 /* Expanded: most of the screen, below the top controls and above the character bar and input. */
+/* Sizes are numbers in both states, so the change can be animated. */
+.uiAnswer {
+    transition: top 240ms cubic-bezier(0.2, 0.8, 0.2, 1), bottom 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+        width 240ms cubic-bezier(0.2, 0.8, 0.2, 1), height 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+        max-height 240ms cubic-bezier(0.2, 0.8, 0.2, 1), padding 240ms ease, background-color 240ms ease;
+}
 .uiAnswer.isExpanded {
     top: 112px;
-    right: 20px;
     bottom: 150px;
-    width: auto;
-    max-height: none;
+    /* The width excludes the padding: 40px of margins plus 2 × 28px. */
+    width: calc(100vw - 96px);
+    max-height: calc(100dvh - 306px);
     padding: 22px 28px;
     background: rgba(40, 42, 54, 0.88);
-    transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+    .uiAnswer { transition: none; }
 }
 .transcriptExpand {
     position: sticky;
@@ -2465,6 +2473,6 @@ button:focus-visible {
 @media (max-width: 700px) {
     /* Clear of the column of buttons on the right edge. */
     .uiAnswer { right: 58px; }
-    .uiAnswer.isExpanded { top: 152px; left: 10px; right: 58px; bottom: 150px; height: auto; padding: 14px; }
+    .uiAnswer.isExpanded { top: 152px; width: auto; height: calc(100dvh - 350px); max-height: calc(100dvh - 350px); bottom: auto; padding: 14px; }
     .uiAnswer.isExpanded .transcriptExpand { margin: -6px -6px 6px 10px; }
 }
