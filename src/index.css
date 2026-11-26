@@ -2300,10 +2300,14 @@ button:focus-visible {
     display: grid;
     grid-template-columns: repeat(var(--days), minmax(0, 1fr));
     height: calc(24 * 48px);
+    /* Hours, half hours, and stronger lines every 3 hours and every 6 hours (6:00, 12:00, 18:00). */
     background-image:
+        linear-gradient(rgba(255, 255, 255, 0.3) 3px, transparent 3px),
+        linear-gradient(rgba(255, 255, 255, 0.2) 2px, transparent 2px),
         linear-gradient(var(--cal-line) 1px, transparent 1px),
         linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-    background-size: 100% 48px, 100% 24px;
+    background-size: 100% 288px, 100% 144px, 100% 48px, 100% 24px;
+    background-position: 0 -1px, 0 -0.5px, 0 0, 0 0;
     touch-action: none;
     user-select: none;
     cursor: cell;
