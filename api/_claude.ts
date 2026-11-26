@@ -80,11 +80,27 @@ export async function streamClaude(
                 tools,
                 // Conversation needs speed more than deep deliberation; a work session gets more thought.
                 output_config: { effort },
+                // Readable summaries of its thinking, shown while the user waits.
+                thinking: { type: "adaptive", display: "summarized" },
                 // Should a safety check decline, a related model answers instead of nobody.
                 betas: ["server-side-fallback-2026-07-01"],
                 fallbacks: "default",
             });
+            // The query of a web search arrives in pieces.
+            let query: string | null = null;
             for await (const event of stream) {
+                if (event.type === "content_block_start" && event.content_block.type === "server_tool_use") query = "";
+                if (event.type === "content_block_delta" && event.delta.type === "input_json_delta" && query !== null) query += event.delta.partial_json;
+                if (event.type === "content_block_stop" && query !== null) {
+                    try {
+                        const text = (JSON.parse(query) as { query?: string }).query;
+                        if (text) send(res, { type: "search", text });
+                    } catch {
+                        // Not a search with a query.
+                    }
+                    query = null;
+                }
+                if (event.type === "content_block_delta" && event.delta.type === "thinking_delta") send(res, { type: "thought", text: event.delta.thinking });
                 if (event.type === "content_block_start" && event.content_block.type === "text" && wroteText) {
                     // Text around a web search comes in separate blocks.
                     send(res, { type: "delta", text: " " });

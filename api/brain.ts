@@ -5,6 +5,8 @@ import { CLAUDE_MODELS, streamClaude } from "./_claude.js";
 // for characters who need substance (reasoning, concrete ideas, web search).
 // Streams newline-separated JSON events, so speech can start after the first sentence:
 //   {"type":"delta","text":"…"}  {"type":"call","name":"…","callId":"…","arguments":"…"}  {"type":"done"}  {"type":"error"}
+// and, while the model works before it answers, so the user sees what is going on:
+//   {"type":"thought","text":"…"} (a summary of its reasoning)  {"type":"search","text":"…"} (a web search query)
 // task "react": a small fast model decides at once whether to answer right away (then streams that
 // reply as deltas) or to think (then names a sound to make meanwhile), first sending
 //   {"type":"decision","mode":"reply"|"think","sound":"…"}
@@ -136,7 +138,11 @@ async function streamModel(request: object, res: VercelResponse, onText: (delta:
     return true;
 }
 
-type StreamEvent = { type?: string; delta?: string; item?: { type?: string; name?: string; call_id?: string; arguments?: string } };
+type StreamEvent = {
+    type?: string;
+    delta?: string;
+    item?: { type?: string; name?: string; call_id?: string; arguments?: string; action?: { query?: string } };
+};
 
 function send(res: VercelResponse, event: object) {
     res.write(`${JSON.stringify(event)}\n`);
@@ -223,8 +229,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         input: body.input,
         tools: [{ type: "web_search" }, ...functions],
         // The lowest effort this model takes; conversation needs speed more than deep deliberation. Work can wait a little.
-        reasoning: { effort: professional ? "medium" : "low" },
+        reasoning: { effort: professional ? "medium" : "low", summary: "auto" },
     }, res, (delta) => send(res, { type: "delta", text: delta }), (event) => {
+        if (event.type === "response.reasoning_summary_text.delta" && event.delta) send(res, { type: "thought", text: event.delta });
+        if (event.type === "response.output_item.done" && event.item?.type === "web_search_call" && event.item.action?.query) {
+            send(res, { type: "search", text: event.item.action.query });
+        }
         if (event.type === "response.output_item.done" && event.item?.type === "function_call") {
             send(res, { type: "call", name: event.item.name, callId: event.item.call_id, arguments: event.item.arguments ?? "{}" });
         }

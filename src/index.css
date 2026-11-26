@@ -214,6 +214,22 @@ button:focus-visible {
 .transcriptMessage { margin-bottom: 12px; white-space: pre-line; }
 /* Readable line length on the wide panel. */
 .uiAnswer.isExpanded .transcriptMessage { max-width: 920px; margin-bottom: 18px; }
+.transcriptActivity {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    max-width: 920px;
+    margin-bottom: 12px;
+    padding: 9px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 10px;
+    background: rgba(20, 23, 37, 0.35);
+    font-size: 0.85em;
+    line-height: 1.4;
+}
+.transcriptActivity > svg { flex: 0 0 auto; margin-top: 2px; opacity: 0.8; }
+.transcriptActivity > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.transcriptActivity small { color: rgba(255, 255, 255, 0.72); font-size: 0.95em; font-style: italic; overflow-wrap: anywhere; }
 .transcriptMessage > strong { text-transform: capitalize; color: #b9c9ff; }
 .transcriptWord {
     appearance: none;

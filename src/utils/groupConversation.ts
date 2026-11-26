@@ -41,7 +41,27 @@ export type GroupCallbacks = {
     onConnectionError: (id: CharacterId, error: unknown) => void;
     /** A character wants to sketch; answer with finishDiagram once it is drawn. */
     onDiagramRequest: (request: DiagramRequest) => void;
+    /** What a character is doing before their answer starts (null once it does), so a long wait is not a blank one. */
+    onActivity?: (id: CharacterId, activity: BrainActivity | null) => void;
 };
+
+export type BrainActivity = {
+    id: CharacterId;
+    /** When they started working on the answer. */
+    since: number;
+    /** The latest web search. */
+    search?: string;
+    /** The gist of what they are thinking about right now. */
+    thought?: string;
+};
+
+/** The latest heading of a reasoning summary ("**Comparing sources**"), or else its last sentence. */
+function gistOfThoughts(text: string) {
+    const headings = [...text.matchAll(/\*\*([^*\n]{3,120})\*\*/g)];
+    if (headings.length) return headings.at(-1)![1].trim();
+    const sentences = text.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+/).filter((sentence) => sentence.length > 12);
+    return sentences.at(-1)?.slice(0, 160);
+}
 
 const HISTORY_FOR_LATE_JOINERS = 12;
 /** Lines of the conversation a character's own model reads for each reply. */
@@ -816,6 +836,10 @@ export class GroupConversation {
         const deepController = new AbortController();
         const reactController = new AbortController();
         this.setThinking(id);
+        const activity: BrainActivity = { id, since: Date.now() };
+        let thoughts = "";
+        const showActivity = () => { if (this.thinking.get(id) === controller) this.callbacks.onActivity?.(id, { ...activity }); };
+        showActivity();
         let written = "";
         let unspoken = "";
         let spokeWords = false;
@@ -829,6 +853,18 @@ export class GroupConversation {
         const perform = async (events: AsyncGenerator<BrainEvent>) => {
             for await (const event of events) {
                 if (event.type === "error") throw new Error("Brain stream failed");
+                if (event.type === "search" && event.text) {
+                    activity.search = event.text;
+                    showActivity();
+                }
+                if (event.type === "thought" && event.text && !written) {
+                    thoughts += event.text;
+                    const gist = gistOfThoughts(thoughts);
+                    if (gist && gist !== activity.thought) {
+                        activity.thought = gist;
+                        showActivity();
+                    }
+                }
                 if (event.type === "call" && event.name && event.callId) {
                     this.toolItems.set(id, [...(this.toolItems.get(id) ?? []), {
                         at: this.lines.length,
@@ -837,6 +873,8 @@ export class GroupConversation {
                     this.handleFunctionCall(id, { name: event.name, callId: event.callId, arguments: event.arguments ?? "{}" });
                 }
                 if (event.type !== "delta" || !event.text) continue;
+                // The answer itself now shows what is going on.
+                if (!written) this.callbacks.onActivity?.(id, null);
                 written += event.text;
                 unspoken += event.text;
                 const shown = speakable(written);
@@ -897,7 +935,10 @@ export class GroupConversation {
             if (this.performance?.id === id) this.finishPerformance();
             this.callbacks.onConnectionError(id, error);
         } finally {
-            if (this.thinking.get(id) === controller) this.thinking.delete(id);
+            if (this.thinking.get(id) === controller) {
+                this.thinking.delete(id);
+                this.callbacks.onActivity?.(id, null);
+            }
         }
     }
 

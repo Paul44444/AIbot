@@ -40,7 +40,7 @@ import {
     type SpeechPlaybackState,
 } from "../utils/speakText";
 
-import { GroupConversation, warmUpBrain, type DiagramRequest, type RaisedHand } from "../utils/groupConversation";
+import { GroupConversation, warmUpBrain, type BrainActivity, type DiagramRequest, type RaisedHand } from "../utils/groupConversation";
 import type { DiagramSpec } from "../types/diagram";
 import type { DiagramState, SketchEntry, SketchLibrary } from "./DiagramPanel";
 import type { YouTubeHandle, YouTubeRequest } from "./YouTubePanel";
@@ -104,6 +104,29 @@ const TRANSCRIPT_EXPANDED_KEY = "transcriptExpanded";
 const SOUND_OFF_KEY = "soundOff";
 const SMYTH_MODEL_KEY = "smythModel";
 
+/** While a character works on a longer answer: what they are doing and for how long. */
+function ActivityLine({ activity }: { activity: BrainActivity }) {
+    const [now, setNow] = useState(() => Date.now());
+    const lineRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const timer = window.setInterval(() => setNow(Date.now()), 1000);
+        return () => window.clearInterval(timer);
+    }, []);
+    useEffect(() => { lineRef.current?.scrollIntoView({ block: "nearest" }); }, [activity.search, activity.thought]);
+    const character = CHARACTER_BY_ID[activity.id];
+    const seconds = Math.max(0, Math.round((now - activity.since) / 1000));
+    return (
+        <div className="transcriptActivity" ref={lineRef} role="status">
+            <LoaderCircle className="speechPreparingIcon" size={16} aria-hidden="true" />
+            <div>
+                <span><strong style={{ color: character.color }}>{character.name}</strong> is thinking · {seconds} s</span>
+                {activity.search && <small>Searching the web: “{activity.search}”</small>}
+                {activity.thought && <small>{activity.thought}</small>}
+            </div>
+        </div>
+    );
+}
+
 function ChatTranscript({
                             messages,
                             loading,
@@ -111,6 +134,7 @@ function ChatTranscript({
                             onOpenDiagram,
                             expanded,
                             onToggleExpanded,
+                            activity,
                         }: {
     messages: Message[];
     loading: boolean;
@@ -119,6 +143,7 @@ function ChatTranscript({
     /** Covers most of the screen (the menus around it stay visible); the group then works in professional mode. */
     expanded: boolean;
     onToggleExpanded: () => void;
+    activity: BrainActivity | null;
 }) {
     const [wordInfo, setWordInfo] = useState<WordInfo | null>(null);
     const [lookupWord, setLookupWord] = useState<string | null>(null);
@@ -190,6 +215,7 @@ function ChatTranscript({
                 ))}
 
                 {loading && <div>Thinking...</div>}
+                {activity && <ActivityLine key={`${activity.id}-${activity.since}`} activity={activity} />}
             </div>
 
             {lookupWord && (
@@ -981,6 +1007,7 @@ export default function Chat({
     });
     const smythModelRef = useRef(smythModel);
     // The maximized text panel is for work: the group switches to professional mode (see ConversationMode).
+    const [brainActivity, setBrainActivity] = useState<BrainActivity | null>(null);
     const [transcriptExpanded, setTranscriptExpanded] = useState(() => {
         try {
             return localStorage.getItem(TRANSCRIPT_EXPANDED_KEY) === "true";
@@ -1183,6 +1210,8 @@ export default function Chat({
                 if (id) setSpeechPreparing(false);
             },
             onThinkingChange: setThinkingId,
+            // A finished character only clears their own line, not one another character just started.
+            onActivity: (id, activity) => setBrainActivity((current) => activity ?? (current?.id === id ? null : current)),
             onHands: setHands,
             onAddresseeChange: setAddressee,
             onDiagramRequest: (request) => { void drawDiagram(request); },
@@ -1866,6 +1895,7 @@ ${topicGuidance}
                 }}
                 expanded={transcriptExpanded}
                 onToggleExpanded={toggleTranscriptExpanded}
+                activity={brainActivity}
             />
 
             {(gapWordsLoading || gapWordsError || gapWords.length > 0) && (
