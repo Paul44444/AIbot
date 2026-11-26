@@ -7,7 +7,7 @@ import type { Message } from "../types/chat";
 import { useEffect, useRef } from 'react'
 
 import { loadStoredConversations, upsertConversationNode } from "../data/conversationStorage";
-import { Mic, MicOff, Lock, Check, LoaderCircle, Pause, Play, PencilLine, CalendarDays, Maximize2, Minimize2 } from "lucide-react";
+import { Mic, MicOff, Lock, Check, LoaderCircle, Pause, Play, PencilLine, CalendarDays, Maximize2, Minimize2, Volume2, VolumeX } from "lucide-react";
 import { useTopicProgress } from "../hooks/useTopicProgress";
 import {
     FREE_CONVERSATION_TOPIC_ID,
@@ -101,6 +101,7 @@ function InteractiveText({
 }
 
 const TRANSCRIPT_EXPANDED_KEY = "transcriptExpanded";
+const SOUND_OFF_KEY = "soundOff";
 
 function ChatTranscript({
                             messages,
@@ -959,6 +960,30 @@ export default function Chat({
     const [hands, setHands] = useState<RaisedHand[]>([]);
     const [speechRate, setSpeechRate] = useState(1);
     const speechRateRef = useRef(speechRate);
+    // Sound off: the group answers in text only, and no voice is generated at all.
+    const [soundOff, setSoundOff] = useState(() => {
+        try {
+            return localStorage.getItem(SOUND_OFF_KEY) === "true";
+        } catch {
+            return false;
+        }
+    });
+    const soundOffRef = useRef(soundOff);
+    const toggleSound = () => {
+        const next = !soundOffRef.current;
+        soundOffRef.current = next;
+        setSoundOff(next);
+        try {
+            localStorage.setItem(SOUND_OFF_KEY, String(next));
+        } catch {
+            // Only for this visit then.
+        }
+        if (next) {
+            cancelSpeech();
+            setSpeechPreparing(false);
+        }
+        groupRef.current?.setMuted(next);
+    };
     // 0 means no limit: the characters take as much room as the topic needs.
     const [sentenceCount, setSentenceCount] = useState(0);
     const [speechLanguage, setSpeechLanguage] = useState(initialSpeechLanguage);
@@ -1126,6 +1151,8 @@ export default function Chat({
                 }]);
             },
         }, conversationAbortRef.current.signal);
+        // Before the settings, which start preloading sounds a muted group does not need.
+        group.setMuted(soundOffRef.current);
         group.updateSettings(settingsRef.current, speechRateRef.current, transcriptionLanguage(speechLanguageRef.current));
         if (videoRef.current) group.setVideoContext(videoContext(videoRef.current), videoPosition);
         groupRef.current = group;
@@ -1729,12 +1756,13 @@ ${topicGuidance}
                 onDismissHand={(id) => setHands((previous) => previous.filter((hand) => hand.id !== id))}
             />
 
-            <div className="audioControls" aria-label="Voice playback controls">
+            <div className={`audioControls${soundOff ? " isSoundOff" : ""}`} aria-label="Voice playback controls">
+                <div className="audioButtons">
                 <button
                 className="speechPlaybackButton"
                 type="button"
                 onClick={toggleSpeechPlayback}
-                disabled={speechPreparing || speechPlaybackState === "idle"}
+                disabled={soundOff || speechPreparing || speechPlaybackState === "idle"}
                 aria-label={speechPreparing
                     ? "Preparing AI speech"
                     : speechPlaybackState === "playing" ? "Pause AI speech" : "Resume AI speech"}
@@ -1753,6 +1781,17 @@ ${topicGuidance}
                         <Play size={19} fill="currentColor" />
                     )}
                 </button>
+                <button
+                    className="speechPlaybackButton soundToggle"
+                    type="button"
+                    onClick={toggleSound}
+                    aria-pressed={soundOff}
+                    aria-label={soundOff ? "Turn sound on" : "Turn sound off"}
+                    title={soundOff ? "Sound is off: replies come as text only. Click to turn it on." : "Turn sound off (text only)"}
+                >
+                    {soundOff ? <VolumeX size={19} /> : <Volume2 size={19} />}
+                </button>
+                </div>
 
                 <label className="speechRateControl">
                     <span>Voice speed <strong>{Math.round(speechRate * 100)}%</strong></span>
@@ -1763,6 +1802,7 @@ ${topicGuidance}
                         step="0.05"
                         value={speechRate}
                         onChange={(event) => changeSpeechRate(Number(event.target.value))}
+                        disabled={soundOff}
                         aria-label="Voice speaking speed"
                     />
                     <small><span>Slower</span><span>Normal</span></small>

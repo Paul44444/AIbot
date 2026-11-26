@@ -973,7 +973,7 @@ button:focus-visible {
     left: 50%;
     z-index: 20;
     transform: translateX(-50%);
-    width: 242px;
+    width: 294px;
     overflow: hidden;
     display: flex;
     align-items: stretch;
@@ -1001,6 +1001,11 @@ button:focus-visible {
     background: rgba(255, 255, 255, 0.035);
 }
 .speechPlaybackButton:hover:not(:disabled) { background: rgba(48, 57, 83, 0.92); }
+.audioButtons { display: flex; flex: 0 0 auto; }
+.soundToggle { cursor: pointer; }
+.soundToggle[aria-pressed="true"] { background: rgba(239, 90, 90, 0.38); }
+.soundToggle[aria-pressed="true"]:hover { background: rgba(239, 90, 90, 0.55) !important; }
+.isSoundOff .speechRateControl { opacity: 0.45; }
 .speechPlaybackButton:disabled { opacity: 0.45; cursor: default; }
 .speechPlaybackButton:has(.speechPreparingIcon) { opacity: 0.9; }
 .speechPreparingIcon { animation: speechPreparingSpin 850ms linear infinite; }
@@ -1962,7 +1967,7 @@ button:focus-visible {
     .audioControls {
         top: 56px;
         left: 10px;
-        width: min(242px, calc(100vw - 70px));
+        width: min(294px, calc(100vw - 70px));
         transform: none;
         flex-direction: row;
     }
@@ -2475,4 +2480,17 @@ button:focus-visible {
     .uiAnswer { right: 58px; }
     .uiAnswer.isExpanded { top: 152px; width: auto; height: calc(100dvh - 350px); max-height: calc(100dvh - 350px); bottom: auto; padding: 14px; }
     .uiAnswer.isExpanded .transcriptExpand { margin: -6px -6px 6px 10px; }
+}
+
+/* Where the controls stack, the two buttons share the top row. */
+@media (max-width: 1250px) {
+    .audioControls { width: 210px; }
+    .audioButtons { order: -1; border-bottom: 1px solid rgba(255, 255, 255, 0.14); }
+    .audioButtons > .speechPlaybackButton { flex: 1 1 0; width: auto; border-bottom: 0; }
+    .audioButtons > .soundToggle { border-left: 1px solid rgba(255, 255, 255, 0.14); }
+}
+@media (max-width: 700px) {
+    .audioControls { width: min(294px, calc(100vw - 70px)); }
+    .audioButtons { order: 0; border-bottom: 0; }
+    .audioButtons > .speechPlaybackButton { flex: 0 0 52px; width: 52px; border-left: 1px solid rgba(255, 255, 255, 0.14); }
 }

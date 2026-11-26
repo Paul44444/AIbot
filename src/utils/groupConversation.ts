@@ -85,9 +85,12 @@ async function* brainEvents(response: Response): AsyncGenerator<BrainEvent> {
     }
 }
 
-/** Characters with an expressive voice reply in text, which /api/voice then performs. */
-function outputModalities(id: CharacterId) {
-    return CHARACTER_BY_ID[id].expressiveVoice ? ["text"] : ["audio"];
+/**
+ * Characters with an expressive voice reply in text, which /api/voice then performs.
+ * With the sound off, everyone replies in text and no voice is generated.
+ */
+function outputModalities(id: CharacterId, muted: boolean) {
+    return muted || CHARACTER_BY_ID[id].expressiveVoice ? ["text"] : ["audio"];
 }
 
 /** Characters whose replies come from their own text model; their realtime session only listens. */
@@ -157,6 +160,8 @@ export class GroupConversation {
     private settings = "";
     /** Playback speed of every voice (the API allows 0.25–1.5; 1 is normal). */
     private speed = 1;
+    /** Sound off: replies only as text, nothing is spoken or generated as audio. */
+    private muted = false;
     /** ISO 639-1 code the user's speech is transcribed in; null lets the transcriber guess. */
     private language: string | null = null;
     private lines: { speaker: string; text: string }[] = [];
@@ -204,6 +209,21 @@ export class GroupConversation {
     speakingAudio() {
         if (this.speaking && this.speaking === this.voicing) return this.performance?.pieces[this.performance.index]?.audio ?? null;
         return this.speaking ? this.ready.get(this.speaking)?.audioEl ?? null : null;
+    }
+
+    setMuted(muted: boolean) {
+        if (this.muted === muted) return;
+        this.muted = muted;
+        for (const [id, session] of this.ready) {
+            session.audioEl.muted = muted;
+            this.sendInstructions(id, session);
+        }
+        if (muted) {
+            this.stopVoice();
+            if (this.speaking) this.setSpeaking(null);
+        } else {
+            this.preloadSounds();
+        }
     }
 
     updateSettings(settings: string, speed: number, language: string | null) {
@@ -274,7 +294,7 @@ export class GroupConversation {
         session.dc.send(JSON.stringify({
             type: "response.create",
             response: {
-                output_modalities: outputModalities(id),
+                output_modalities: outputModalities(id, this.muted),
                 instructions: interjectionInstructions(CHARACTER_BY_ID[id], this.settingsWithMemory(), teaser),
             },
         }));
@@ -294,7 +314,7 @@ export class GroupConversation {
             type: "conversation.item.create",
             item: { type: "function_call_output", call_id: callId, output: JSON.stringify(result) },
         }));
-        session.dc.send(JSON.stringify({ type: "response.create", response: { output_modalities: outputModalities(id) } }));
+        session.dc.send(JSON.stringify({ type: "response.create", response: { output_modalities: outputModalities(id, this.muted) } }));
     }
 
     setVideoContext(context: string | null, position: (() => string | null) | null) {
@@ -352,6 +372,7 @@ export class GroupConversation {
             await waitForOpen(session.dc);
             this.signal.throwIfAborted();
             this.ready.set(id, session);
+            session.audioEl.muted = this.muted;
             this.sendInstructions(id, session);
             // Late joiners catch up on what was said before they connected.
             for (const line of this.lines.slice(-HISTORY_FOR_LATE_JOINERS)) {
@@ -413,7 +434,7 @@ export class GroupConversation {
             type: "session.update",
             session: {
                 type: "realtime",
-                output_modalities: outputModalities(id),
+                output_modalities: outputModalities(id, this.muted),
                 instructions: characterInstructions(CHARACTER_BY_ID[id], this.settingsWithMemory()),
                 // Real time-stretching; asking for a slower pace in the instructions barely works.
                 audio: {
@@ -529,7 +550,7 @@ export class GroupConversation {
         }
         void this.connect(target).then((session) => {
             if (this.signal.aborted) return;
-            session.dc.send(JSON.stringify({ type: "response.create", response: { output_modalities: outputModalities(target) } }));
+            session.dc.send(JSON.stringify({ type: "response.create", response: { output_modalities: outputModalities(target, this.muted) } }));
         });
     }
 
@@ -562,7 +583,7 @@ export class GroupConversation {
         this.replies.delete(id);
         if (!text) return;
         // A character with their own model is already being performed while writing.
-        if (CHARACTER_BY_ID[id].expressiveVoice && !hasBrain(id)) this.perform(id, performance);
+        if (CHARACTER_BY_ID[id].expressiveVoice && !hasBrain(id) && !this.muted) this.perform(id, performance);
         const name = CHARACTER_BY_ID[id].name;
         this.addLine(name, text);
         this.injectIntoOthers(id, `[${name}]: ${text}`);
@@ -639,14 +660,14 @@ export class GroupConversation {
      * and a real answer must not lose its turn to a preload.
      */
     private preloadSounds() {
-        if (this.preloadingSounds) return;
+        if (this.preloadingSounds || this.muted) return;
         const urls = CHARACTERS
             .filter((character) => character.brainModel)
             .flatMap((character) => this.soundsFor(character.id).map((sound) => this.voiceUrl(character.id, sound.text)))
             .filter((url) => !this.preloaded.has(url));
         const next = () => {
             const url = urls.shift();
-            this.preloadingSounds = Boolean(url) && !this.signal.aborted;
+            this.preloadingSounds = Boolean(url) && !this.signal.aborted && !this.muted;
             if (!url || !this.preloadingSounds) return;
             if (this.performance || this.thinking.size) {
                 // Someone is answering; their voice comes first. Try again in a moment.
@@ -757,6 +778,7 @@ export class GroupConversation {
         let unspoken = "";
         let spokeWords = false;
         const speak = (piece: string, sound = false) => {
+            if (this.muted) return;
             if (!this.performance || this.performance.id !== id) this.startPerformance(id);
             this.addPiece(piece, sound);
             if (!sound) spokeWords = true;
