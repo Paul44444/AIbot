@@ -2581,7 +2581,8 @@ button:focus-visible {
     .uiAnswer.isExpanded { padding-left: 116px; width: calc(100vw - 184px); }
 }
 .timeline.isExpanded .tlTip { right: auto; left: 28px; }
-.tlAxis { position: absolute; top: 8px; bottom: 8px; left: 47px; width: 2px; border-radius: 1px; background: rgba(255, 255, 255, 0.22); }
+.tlTrack { position: absolute; top: 16px; bottom: 16px; left: 0; right: 0; }
+.tlAxis { position: absolute; top: -8px; bottom: -8px; left: 47px; width: 2px; border-radius: 1px; background: rgba(255, 255, 255, 0.22); }
 .tlTick {
     position: absolute;
     left: 2px;
@@ -2597,7 +2598,7 @@ button:focus-visible {
     position: absolute;
     left: 38px;
     width: 20px;
-    height: 0;
+    min-height: 1px;
     padding: 0;
     border: 0;
     background: none;
@@ -2633,6 +2634,7 @@ button:focus-visible {
     position: absolute;
     left: 2px;
     top: 0;
+    min-height: 4px;
     width: 16px;
     box-sizing: border-box;
     border: 1.5px dashed var(--entry-color);

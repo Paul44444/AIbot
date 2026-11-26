@@ -58,6 +58,8 @@ export default function Timeline({ entries, expanded, onNavigate }: {
 
     return (
         <nav className={`timeline${expanded ? " isExpanded" : ""}`} aria-label="Timeline of your requests">
+            {/* Positions are percentages of this track, inset so the first and last dots stay inside. */}
+            <div className="tlTrack">
             <div className="tlAxis" />
             {ticks.map((tick) => (
                 <span key={tick} className="tlTick" style={{ top: y(tick) }}>{clock.format(tick)}</span>
@@ -68,18 +70,20 @@ export default function Timeline({ entries, expanded, onNavigate }: {
                 const color = entry.character ? CHARACTER_BY_ID[entry.character].color : "#c9d3ff";
                 const took = done - entry.at;
                 const forecast = entry.estimate ? entry.estimate.seconds * 1000 : null;
+                // The entry spans its bar and forecast; both are drawn as shares of that span.
+                const reach = Math.max(took, forecast ?? 0, 1);
                 return (
                     <button
                         key={entry.id}
                         type="button"
                         className="tlEntry"
                         data-open={!entry.doneAt}
-                        style={{ top: y(entry.at), "--entry-color": color } as CSSProperties}
+                        style={{ top: y(entry.at), height: length(entry.at, entry.at + reach), "--entry-color": color } as CSSProperties}
                         onClick={() => onNavigate(entry.messageId)}
                         aria-label={`${clock.format(entry.at)}: ${entry.text}`}
                     >
-                        {forecast !== null && <span className="tlForecast" style={{ height: length(entry.at, entry.at + forecast) }} />}
-                        <span className="tlBar" style={{ height: length(entry.at, done) }}>
+                        {forecast !== null && <span className="tlForecast" style={{ height: `${(forecast / reach) * 100}%` }} />}
+                        <span className="tlBar" style={{ height: `${(took / reach) * 100}%` }}>
                             {entry.firstAt && entry.doneAt && (
                                 // Lighter once the answer started: the rest is reading time, not waiting.
                                 <span className="tlStreaming" style={{ top: `${((entry.firstAt - entry.at) / Math.max(1, took)) * 100}%` }} />
@@ -99,6 +103,7 @@ export default function Timeline({ entries, expanded, onNavigate }: {
                     </button>
                 );
             })}
+            </div>
         </nav>
     );
 }
