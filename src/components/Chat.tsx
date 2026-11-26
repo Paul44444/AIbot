@@ -1,4 +1,4 @@
-import { lazy, Suspense, useImperativeHandle, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useImperativeHandle, useMemo, useState } from "react";
 import { outdoorInput } from "./outdoor/input";
 import type { CSSProperties, Ref } from "react";
 import type { Message } from "../types/chat";
@@ -7,7 +7,7 @@ import type { Message } from "../types/chat";
 import { useEffect, useRef } from 'react'
 
 import { loadStoredConversations, upsertConversationNode } from "../data/conversationStorage";
-import { Mic, MicOff, Lock, Check, LoaderCircle, Pause, Play, PencilLine } from "lucide-react";
+import { Mic, MicOff, Lock, Check, LoaderCircle, Pause, Play, PencilLine, CalendarDays } from "lucide-react";
 import { useTopicProgress } from "../hooks/useTopicProgress";
 import {
     FREE_CONVERSATION_TOPIC_ID,
@@ -798,6 +798,7 @@ type ChatProps = {
 const LazySceneView = lazy(() => import("./SceneView"));
 const LazyDiagramPanel = lazy(() => import("./DiagramPanel"));
 const LazyYouTubePanel = lazy(() => import("./YouTubePanel"));
+const LazyCalendarPanel = lazy(() => import("./CalendarPanel"));
 const LazyMinimap = lazy(() => import("./outdoor/Minimap"));
 
 /** What the group is told about the video the user is watching. */
@@ -1007,6 +1008,8 @@ export default function Chat({
     };
 
     const [youtubeOpen, setYoutubeOpen] = useState(false);
+    const [calendarOpen, setCalendarOpen] = useState(false);
+    const closeCalendar = useCallback(() => setCalendarOpen(false), []);
     // What to show when the viewer is opened from a character's PC.
     const [youtubeRequest, setYoutubeRequest] = useState<YouTubeRequest | null>(null);
     const [focusPc, setFocusPc] = useState<CharacterId | null>(null);
@@ -1671,6 +1674,23 @@ ${topicGuidance}
                 <PencilLine size={20} aria-hidden="true" />
                 {sketchCount > 0 && <span className="sketchesCount">{sketchCount}</span>}
             </button>
+
+            <button
+                className="calendarButton"
+                type="button"
+                onClick={() => setCalendarOpen((open) => !open)}
+                aria-expanded={calendarOpen}
+                aria-label="Calendar"
+                data-tooltip="Calendar"
+            >
+                <CalendarDays size={20} aria-hidden="true" />
+            </button>
+
+            {calendarOpen && (
+                <Suspense fallback={null}>
+                    <LazyCalendarPanel onClose={closeCalendar} />
+                </Suspense>
+            )}
 
             <GroupBar
                 addressee={addressee}

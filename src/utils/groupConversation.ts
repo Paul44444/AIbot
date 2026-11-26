@@ -1,5 +1,6 @@
 import { sendRealtimeText, startRealtimeVoiceSession } from "./realtimeVoice";
 import { describeFeed, loadFeed } from "./characterFeed";
+import { calendarContext } from "./calendar";
 import { memoryContext, remember } from "./memory";
 import {
     CHARACTERS,
@@ -447,9 +448,9 @@ export class GroupConversation {
         remember(speaker, text);
     }
 
-    /** The user's settings plus what the group remembers from earlier conversations. */
+    /** The user's settings plus what the group remembers from earlier conversations and the user's calendar. */
     private settingsWithMemory() {
-        return `${this.settings}\n\n${memoryContext()}`;
+        return `${this.settings}\n\n${memoryContext()}\n\n${calendarContext()}`;
     }
 
     private recordUserLine(text: string, to: CharacterId, heardBy: CharacterId) {
