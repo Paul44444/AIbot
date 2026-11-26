@@ -41,6 +41,7 @@ import {
 } from "../utils/speakText";
 
 import { GroupConversation, warmUpBrain, type BrainActivity, type DiagramRequest, type RaisedHand } from "../utils/groupConversation";
+import Timeline, { type TimelineEntry } from "./Timeline";
 import type { DiagramSpec } from "../types/diagram";
 import type { DiagramState, SketchEntry, SketchLibrary } from "./DiagramPanel";
 import type { YouTubeHandle, YouTubeRequest } from "./YouTubePanel";
@@ -166,7 +167,11 @@ function ActivityLine({ activity }: { activity: BrainActivity }) {
         <div className="transcriptActivity" ref={lineRef} role="status">
             <LoaderCircle className="speechPreparingIcon" size={16} aria-hidden="true" />
             <div>
-                <span><strong style={{ color: character.color }}>{character.name}</strong> is thinking · {seconds} s</span>
+                <span>
+                    <strong style={{ color: character.color }}>{character.name}</strong> is thinking · {seconds} s
+                    {activity.estimate && ` of about ${activity.estimate.seconds} s`}
+                </span>
+                {activity.estimate && <small>Plan: {activity.estimate.plan}</small>}
                 {activity.search && <small>Searching the web: “{activity.search}”</small>}
                 {activity.thought && <small>{activity.thought}</small>}
             </div>
@@ -241,7 +246,7 @@ function ChatTranscript({
                     {expanded ? <Minimize2 size={16} aria-hidden="true" /> : <Maximize2 size={16} aria-hidden="true" />}
                 </button>
                 {messages.map((msg, index) => (
-                    <div className={`transcriptMessage transcriptMessage-${msg.role}`} key={index}>
+                    <div className={`transcriptMessage transcriptMessage-${msg.role}`} key={index} data-message-id={msg.id}>
                         <strong style={characterBySpeaker(msg.speaker) ? { color: characterBySpeaker(msg.speaker)!.color } : undefined}>
                             {msg.role === "user" ? "You" : characterBySpeaker(msg.speaker)?.name ?? assistantName}:
                         </strong>{" "}
@@ -1055,6 +1060,24 @@ export default function Chat({
     const smythModelRef = useRef(smythModel);
     // The maximized text panel is for work: the group switches to professional mode (see ConversationMode).
     const [brainActivity, setBrainActivity] = useState<BrainActivity | null>(null);
+    // When each request was asked and answered (see Timeline).
+    const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
+    /** Changes the request still waiting for its answer, if any. */
+    const updateOpenRequest = (change: (entry: TimelineEntry) => TimelineEntry) => setTimeline((entries) => {
+        const index = entries.length - 1;
+        // Only the latest request can still be waiting: a new one closes the one before.
+        if (index < 0 || entries[index].doneAt) return entries;
+        const next = change(entries[index]);
+        return next === entries[index] ? entries : entries.map((entry, position) => position === index ? next : entry);
+    });
+    const jumpToMessage = (messageId: string) => {
+        const element = document.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(messageId)}"]`);
+        if (!element) return;
+        element.scrollIntoView({ behavior: "smooth", block: "start" });
+        element.classList.remove("isFlashing");
+        void element.offsetWidth;
+        element.classList.add("isFlashing");
+    };
     const [transcriptExpanded, setTranscriptExpanded] = useState(() => {
         try {
             return localStorage.getItem(TRANSCRIPT_EXPANDED_KEY) === "true";
@@ -1219,15 +1242,23 @@ export default function Chat({
                 // Replies start when speech ends, so the transcript often arrives
                 // after a reply began; keep the user's line above that reply.
                 const streaming = new Set(replyIds.values());
+                const messageId = crypto.randomUUID();
                 setRealtimeMessages((prev) => {
                     const next = [...prev];
                     const insertAt = next.findIndex((message) => message.id !== undefined && streaming.has(message.id));
-                    next.splice(insertAt === -1 ? next.length : insertAt, 0, { role: "user", content: text });
+                    next.splice(insertAt === -1 ? next.length : insertAt, 0, { id: messageId, role: "user", content: text });
                     return next;
                 });
+                // A new request ends the wait for an earlier one that never got its answer.
+                const at = Date.now();
+                setTimeline((entries) => [
+                    ...entries.map((entry) => entry.doneAt ? entry : { ...entry, doneAt: at }),
+                    { id: crypto.randomUUID(), messageId, text, at },
+                ]);
                 if (!streaming.size) setSpeechPreparing(true);
             },
             onReplyDelta: (id, text) => {
+                updateOpenRequest((entry) => entry.firstAt ? entry : { ...entry, firstAt: Date.now(), character: entry.character ?? id });
                 let messageId = replyIds.get(id);
                 if (!messageId) {
                     messageId = crypto.randomUUID();
@@ -1242,6 +1273,7 @@ export default function Chat({
                     : [...prev, { id: replyId, role: "assistant", speaker: id, content }]);
             },
             onReplyDone: (id, text) => {
+                updateOpenRequest((entry) => ({ ...entry, firstAt: entry.firstAt ?? Date.now(), doneAt: Date.now(), character: entry.character ?? id }));
                 const replyId = replyIds.get(id);
                 replyIds.delete(id);
                 const content = limitTextToSentences(text, sentenceLimit());
@@ -1258,11 +1290,19 @@ export default function Chat({
             },
             onThinkingChange: setThinkingId,
             // A finished character only clears their own line, not one another character just started.
-            onActivity: (id, activity) => setBrainActivity((current) => activity ?? (current?.id === id ? null : current)),
+            onActivity: (id, activity) => {
+                setBrainActivity((current) => activity ?? (current?.id === id ? null : current));
+                if (activity) {
+                    updateOpenRequest((entry) => entry.estimate === activity.estimate && entry.character === id
+                        ? entry
+                        : { ...entry, character: id, estimate: activity.estimate ?? entry.estimate });
+                }
+            },
             onHands: setHands,
             onAddresseeChange: setAddressee,
             onDiagramRequest: (request) => { void drawDiagram(request); },
             onConnectionError: (id, error) => {
+                updateOpenRequest((entry) => ({ ...entry, doneAt: Date.now() }));
                 console.error(`${CHARACTER_BY_ID[id].name} could not join:`, error);
                 setSpeechPreparing(false);
                 setRealtimeMessages((prev) => [...prev, {
@@ -1931,6 +1971,8 @@ ${topicGuidance}
                     <small><span>Slower</span><span>Normal</span></small>
                 </label>
             </div>
+
+            <Timeline entries={timeline} expanded={transcriptExpanded} onNavigate={jumpToMessage} />
 
             <ChatTranscript key={`transcript-${conversationVersion}`}
                 messages={displayedMessages}

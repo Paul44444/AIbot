@@ -53,7 +53,14 @@ export type BrainActivity = {
     search?: string;
     /** The gist of what they are thinking about right now. */
     thought?: string;
+    /** How long they expect to take, announced up front. */
+    estimate?: Forecast;
 };
+
+export type Forecast = { seconds: number; plan: string };
+
+/** How long the large model may wait for the forecast before answering without one. */
+const FORECAST_TIMEOUT = 2500;
 
 /** The latest heading of a reasoning summary ("**Comparing sources**"), or else its last sentence. */
 function gistOfThoughts(text: string) {
@@ -900,7 +907,28 @@ export class GroupConversation {
                 body: JSON.stringify({ instructions: instructions ?? characterInstructions(character, this.settingsWithMemory(), true), input, ...body }),
                 signal: AbortSignal.any([signal, abort.signal]),
             });
-            const deep = request({ model: this.brainModel(id), mode: this.mode, tools: [DRAW_DIAGRAM_TOOL] }, deepController);
+            const model = this.brainModel(id);
+            // The user's requests get a forecast of how long the answer takes, shown on the timeline.
+            const forecast: Promise<Forecast | null> = quick
+                ? fetch("/api/brain", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ task: "estimate", model, mode: this.mode, instructions: "", input }),
+                    signal,
+                }).then((response) => response.ok ? response.json() as Promise<Forecast> : null).catch(() => null)
+                : Promise.resolve(null);
+            void forecast.then((estimate) => {
+                if (!estimate) return;
+                activity.estimate = estimate;
+                showActivity();
+            });
+            // At work the large model gets the forecast as its time budget, so it is worth the short wait;
+            // in casual talk it starts at once and the forecast is only shown.
+            const budget = this.mode === "professional"
+                ? await Promise.race([forecast, new Promise<null>((resolve) => setTimeout(() => resolve(null), FORECAST_TIMEOUT))])
+                : null;
+            signal.throwIfAborted();
+            const deep = request({ model, mode: this.mode, budget, tools: [DRAW_DIAGRAM_TOOL] }, deepController);
             deep.catch(() => {});
             const sounds = this.soundsFor(id);
             // At work every answer gets the considered model, no quick reply.

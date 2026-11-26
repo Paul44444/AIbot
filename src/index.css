@@ -2558,3 +2558,119 @@ button:focus-visible {
     .modelPicker span { display: none; }
     .modelPicker select { max-width: 92px; font-size: 12px; }
 }
+
+/* Timeline of the user's requests (src/components/Timeline.tsx): beside the panel, or inside it when maximized. */
+.timeline {
+    position: fixed;
+    top: 90px;
+    bottom: 90px;
+    /* Right of the panel: its margin, width and padding. */
+    left: calc(20px + min(380px, 100vw - 40px) + 36px + 10px);
+    z-index: 11;
+    width: 72px;
+    border-radius: 10px;
+    background: rgba(20, 23, 37, 0.55);
+    backdrop-filter: blur(6px);
+    color: white;
+    font: 11px/1.3 system-ui, sans-serif;
+}
+.timeline.isExpanded { left: auto; right: 36px; top: 130px; bottom: 168px; background: rgba(20, 23, 37, 0.35); }
+.tlAxis { position: absolute; top: 8px; bottom: 8px; left: 47px; width: 2px; border-radius: 1px; background: rgba(255, 255, 255, 0.22); }
+.tlTick {
+    position: absolute;
+    left: 2px;
+    width: 38px;
+    transform: translateY(-50%);
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 10px;
+    text-align: right;
+    pointer-events: none;
+}
+.tlNow { position: absolute; left: 40px; width: 16px; height: 2px; border-radius: 1px; background: #ef5a5a; pointer-events: none; }
+.tlEntry {
+    position: absolute;
+    left: 38px;
+    width: 20px;
+    height: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+.tlDot {
+    position: absolute;
+    left: 3px;
+    top: -7px;
+    width: 14px;
+    height: 14px;
+    box-sizing: border-box;
+    border: 2px solid #1a1d2b;
+    border-radius: 50%;
+    background: var(--entry-color);
+}
+.tlBar {
+    position: absolute;
+    left: 6px;
+    top: 0;
+    width: 8px;
+    min-height: 3px;
+    overflow: hidden;
+    border-radius: 4px;
+    background: var(--entry-color);
+}
+.tlStreaming { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(255, 255, 255, 0.5); }
+.tlEntry[data-open="true"] .tlBar { animation: tlPulse 1.2s ease-in-out infinite; }
+@keyframes tlPulse { 50% { opacity: 0.55; } }
+.tlForecast {
+    position: absolute;
+    left: 2px;
+    top: 0;
+    width: 16px;
+    box-sizing: border-box;
+    border: 1.5px dashed var(--entry-color);
+    border-radius: 7px;
+    opacity: 0.75;
+}
+.tlLive {
+    position: absolute;
+    left: 22px;
+    top: -7px;
+    padding: 0 4px;
+    border-radius: 4px;
+    background: rgba(20, 23, 37, 0.85);
+    font-size: 10px;
+    white-space: nowrap;
+}
+.tlTip {
+    position: absolute;
+    right: 28px;
+    top: -10px;
+    z-index: 5;
+    display: none;
+    flex-direction: column;
+    gap: 4px;
+    width: 250px;
+    padding: 8px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 8px;
+    background: rgba(24, 28, 44, 0.97);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+    font-size: 12px;
+    line-height: 1.35;
+    text-align: left;
+}
+.tlTip small { color: rgba(255, 255, 255, 0.65); font-size: 11px; }
+.tlEntry:hover, .tlEntry:focus-visible { z-index: 4; }
+.tlEntry:hover .tlTip, .tlEntry:focus-visible .tlTip { display: flex; }
+.tlEntry:focus-visible { outline: none; }
+.tlEntry:focus-visible .tlDot { box-shadow: 0 0 0 2px #4488ff; }
+
+/* The message the timeline jumped to lights up briefly. */
+.transcriptMessage.isFlashing { animation: messageFlash 1.6s ease-out; border-radius: 6px; }
+@keyframes messageFlash { from { background: rgba(90, 151, 255, 0.35); } to { background: transparent; } }
+
+@media (max-width: 700px) {
+    .timeline { display: none; }
+}

@@ -11,6 +11,8 @@ import { CLAUDE_MODELS, streamClaude } from "./_claude.js";
 // reply as deltas) or to think (then names a sound to make meanwhile), first sending
 //   {"type":"decision","mode":"reply"|"think","sound":"…"}
 // task "remember": condenses the memory journal into notes.
+// task "estimate": a small fast model forecasts how long the answer will take, as {"seconds":…,"plan":"…"};
+// the deep request may then carry it as a time "budget", which caps searching and thinking.
 
 const MODELS = new Set(["gpt-6.1-sol", ...CLAUDE_MODELS]);
 const MAX_INSTRUCTIONS = 30_000;
@@ -20,6 +22,8 @@ type Body = {
     model?: string;
     /** "professional" (a work session) gets more thinking than casual conversation. */
     mode?: string;
+    /** The forecast the user was shown; the answer should arrive in about this time. */
+    budget?: { seconds?: number; plan?: string };
     instructions?: string;
     input?: unknown[];
     /** Function tools the character may call (e.g. draw_diagram); web search is always available. */
@@ -43,6 +47,62 @@ Patterns: only when the journal and the recent conversations show it on at least
 
 Keep everything that is still relevant from the old notes, merge duplicates, drop trivia and small talk, and stay under
 600 words. Never invent anything.`;
+
+const ESTIMATE_MODEL = "gpt-5.4-mini";
+const ESTIMATE_SCHEMA = {
+    type: "object",
+    additionalProperties: false,
+    required: ["seconds", "plan"],
+    properties: { seconds: { type: "integer" }, plan: { type: "string" } },
+};
+
+function estimatePrompt(model: string, professional: boolean) {
+    return `You forecast how long ${model} will need to answer the user's last message, so the user can plan their time.
+It answers in ${professional ? "a focused work session: thorough answers, medium to high reasoning effort" : "a relaxed chat: short answers, low reasoning effort"}.
+Typical times: a quick reply 2-4 s; a considered answer without research ${professional ? "8-20" : "4-8"} s; each web search
+adds 6-10 s; research across several sources ${professional ? "30-60" : "15-25"} s; a long literature overview up to 90 s.
+${model.startsWith("claude-opus") ? "This model is on the slower side." : ""}
+Reply with "seconds" (a whole number from 2 to 120) and "plan": three to six words in the user's language describing
+what the answer involves (e.g. "Recherche zu aktuellen Publikationen", "quick reply").`;
+}
+
+/** A forecast of the answer's duration from a small fast model (see the header comment). */
+async function estimate(body: Body, res: VercelResponse) {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+            model: ESTIMATE_MODEL,
+            instructions: estimatePrompt(body.model ?? "the model", body.mode === "professional"),
+            // The end of the conversation is enough to judge the request.
+            input: (body.input ?? []).slice(-6),
+            reasoning: { effort: "none" },
+            text: { format: { type: "json_schema", name: "estimate", strict: true, schema: ESTIMATE_SCHEMA } },
+            store: false,
+        }),
+    });
+    const data = await response.json() as { output?: { content?: { type?: string; text?: string }[] }[] };
+    const text = (data.output ?? []).flatMap((item) => item.content ?? []).find((part) => part.type === "output_text")?.text;
+    if (!response.ok || !text) return res.status(502).json({ error: "Estimate failed" });
+    const { seconds, plan } = JSON.parse(text) as { seconds: number; plan: string };
+    return res.status(200).json({ seconds: Math.min(120, Math.max(2, Math.round(seconds))), plan: plan.slice(0, 80) });
+}
+
+/** Web searches that fit in the time the user was promised (each takes several seconds). */
+function searchesWithin(seconds: number | undefined) {
+    if (seconds === undefined) return 4;
+    return seconds < 8 ? 0 : seconds < 20 ? 1 : seconds < 45 ? 3 : 5;
+}
+
+/** Instructions that hold the model to the forecast the user was shown. */
+function withBudget(instructions: string, budget: Body["budget"]) {
+    if (!budget?.seconds) return instructions;
+    return `${instructions}
+
+[Time] The user was told this answer takes about ${budget.seconds} seconds${budget.plan ? ` (${budget.plan})` : ""}, and sees a
+timeline of how long each answer takes. Plan to finish in about that time: research and think only as much as fits,
+and rather give a good answer on time than a perfect one late.`;
+}
 
 const REACT_MODEL = "gpt-5.4-mini";
 const REACT_SCHEMA = {
@@ -217,19 +277,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(413).send("Conversation too long");
     }
     if (task === "react") return react(body, res);
+    if (task === "estimate") return estimate(body, res);
     const model = body.model ?? "";
     if (!MODELS.has(model)) return res.status(400).send("Unknown model");
     const functions = (body.tools ?? []).filter((tool) => tool?.type === "function");
     const professional = body.mode === "professional";
-    if (CLAUDE_MODELS.has(model)) return streamClaude(model, body.instructions, body.input, functions, res, professional ? "high" : "low");
+    const seconds = typeof body.budget?.seconds === "number" ? body.budget.seconds : undefined;
+    // More thought only for work, and only where the forecast leaves time for it.
+    const deep = professional && (seconds === undefined || seconds >= 15);
+    const instructions = withBudget(body.instructions, body.budget);
+    const searches = searchesWithin(seconds);
+    if (CLAUDE_MODELS.has(model)) return streamClaude(model, instructions, body.input, functions, res, deep ? "high" : "low", searches);
 
     await streamModel({
         model,
-        instructions: body.instructions,
+        instructions,
         input: body.input,
-        tools: [{ type: "web_search" }, ...functions],
+        tools: [...(searches ? [{ type: "web_search" }] : []), ...functions],
+        // Holds the research to the forecast (the sketch tool counts too, hence one more).
+        ...(seconds !== undefined ? { max_tool_calls: searches + 1 } : {}),
         // The lowest effort this model takes; conversation needs speed more than deep deliberation. Work can wait a little.
-        reasoning: { effort: professional ? "medium" : "low", summary: "auto" },
+        reasoning: { effort: deep ? "medium" : "low", summary: "auto" },
     }, res, (delta) => send(res, { type: "delta", text: delta }), (event) => {
         if (event.type === "response.reasoning_summary_text.delta" && event.delta) send(res, { type: "thought", text: event.delta });
         if (event.type === "response.output_item.done" && event.item?.type === "web_search_call" && event.item.action?.query) {

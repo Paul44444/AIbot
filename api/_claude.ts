@@ -54,12 +54,14 @@ export async function streamClaude(
     functions: FunctionTool[],
     res: VercelResponse,
     effort: "low" | "high",
+    /** Web searches that fit the time forecast; 0 leaves the tool out. */
+    searches = 3,
 ) {
     if (!process.env.ANTHROPIC_API_KEY) return res.status(500).send("ANTHROPIC_API_KEY is not set");
     client ??= new Anthropic();
     const { system, messages } = toClaude(instructions, input as Item[]);
     const tools: Anthropic.Beta.BetaToolUnion[] = [
-        { type: "web_search_20260209", name: "web_search", max_uses: 3 },
+        ...(searches ? [{ type: "web_search_20260209" as const, name: "web_search" as const, max_uses: searches }] : []),
         ...functions.filter((tool) => tool.name).map((tool) => ({
             name: tool.name!,
             description: tool.description,
