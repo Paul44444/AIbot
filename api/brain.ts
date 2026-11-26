@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { CLAUDE_MODELS, streamClaude } from "./_claude.js";
 
 // Writes a character's reply with a stronger text model than the realtime one,
 // for characters who need substance (reasoning, concrete ideas, web search).
@@ -9,7 +10,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 //   {"type":"decision","mode":"reply"|"think","sound":"…"}
 // task "remember": condenses the memory journal into notes.
 
-const MODELS = new Set(["gpt-6.1-sol"]);
+const MODELS = new Set(["gpt-6.1-sol", ...CLAUDE_MODELS]);
 const MAX_INSTRUCTIONS = 30_000;
 const MAX_INPUT_ITEMS = 120;
 
@@ -211,6 +212,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const model = body.model ?? "";
     if (!MODELS.has(model)) return res.status(400).send("Unknown model");
     const functions = (body.tools ?? []).filter((tool) => tool?.type === "function");
+    if (CLAUDE_MODELS.has(model)) return streamClaude(model, body.instructions, body.input, functions, res);
 
     await streamModel({
         model,

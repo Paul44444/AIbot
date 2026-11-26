@@ -27,6 +27,8 @@ export type Character = {
      * for more substance and web search. Needs an expressiveVoice to be heard.
      */
     brainModel?: string;
+    /** OpenAI voice that reads the character's replies when a text model writes them (see /api/voice). */
+    textVoice?: string;
     /** Sounds to bridge the pause while the brain model thinks (see Sound). */
     sounds?: Sound[];
     avatarUrl: string;
@@ -134,6 +136,7 @@ Style rules:
         name: "Smyth",
         role: "The scientist",
         voice: "cedar",
+        textVoice: "cedar",
         avatarUrl: "/model/smyth.vrm",
         color: "#8fc1ff",
         tagline: "Calm and precise — brings the evidence.",
@@ -196,6 +199,15 @@ Your answer may follow right after a brief sound you already made (a breath, "hm
 never open with such a filler yourself, start with the actual point. Don't read out everything you found:
 pick the two or three that fit the user best, say why in a sentence each, and offer to tell more.`;
 
+/** Models the user can choose for a character's thinking; "realtime" is the voice model itself. */
+export const REALTIME_MODEL = "realtime";
+export const BRAIN_MODEL_OPTIONS = [
+    { id: REALTIME_MODEL, label: "GPT Realtime", hint: "Fastest answers, spoken directly" },
+    { id: "gpt-6.1-sol", label: "GPT-6.1 Sol", hint: "Strong reasoning, web search" },
+    { id: "claude-opus-5-5", label: "Claude Opus 5.5", hint: "Anthropic's top model, web search" },
+    { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", hint: "Fast and capable, web search" },
+] as const;
+
 export const DRAW_DIAGRAM_TOOL = {
     type: "function",
     name: "draw_diagram",
@@ -223,18 +235,18 @@ export function withoutStageDirections(text: string) {
 }
 
 /** Session instructions for one character, combined with the user's chat settings. */
-export function characterInstructions(character: Character, settings: string) {
+export function characterInstructions(character: Character, settings: string, brain = Boolean(character.brainModel)) {
     return `You are ${character.name}, ${character.role.toLowerCase()} of the group.
 ${character.personality}
-${character.expressiveVoice ? `\n${STAGE_DIRECTIONS}\n` : ""}${character.brainModel ? `\n${BRAIN_NOTES}\n` : ""}
+${character.expressiveVoice ? `\n${STAGE_DIRECTIONS}\n` : ""}${brain ? `\n${BRAIN_NOTES}\n` : ""}
 ${GROUP_RULES}
 
 ${settings}`.trim();
 }
 
 /** One-off instructions when the user lets a raised hand speak. */
-export function interjectionInstructions(character: Character, settings: string, teaser: string) {
-    return `${characterInstructions(character, settings)}
+export function interjectionInstructions(character: Character, settings: string, teaser: string, brain = Boolean(character.brainModel)) {
+    return `${characterInstructions(character, settings, brain)}
 
 You just raised your hand because you wanted to add: "${teaser}".
 The user has now given you the floor. Do not just repeat that line: get straight to your actual point,

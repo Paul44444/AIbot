@@ -45,7 +45,7 @@ import type { DiagramSpec } from "../types/diagram";
 import type { DiagramState, SketchEntry, SketchLibrary } from "./DiagramPanel";
 import type { YouTubeHandle, YouTubeRequest } from "./YouTubePanel";
 import { formatTime, type VideoDetails } from "../types/youtube";
-import { CHARACTERS, CHARACTER_BY_ID, characterBySpeaker, type CharacterId } from "../data/characters";
+import { BRAIN_MODEL_OPTIONS, CHARACTERS, CHARACTER_BY_ID, REALTIME_MODEL, characterBySpeaker, type CharacterId } from "../data/characters";
 
 //import ChatTranscript from "./ChatTranscript";
 
@@ -102,6 +102,7 @@ function InteractiveText({
 
 const TRANSCRIPT_EXPANDED_KEY = "transcriptExpanded";
 const SOUND_OFF_KEY = "soundOff";
+const SMYTH_MODEL_KEY = "smythModel";
 
 function ChatTranscript({
                             messages,
@@ -652,6 +653,8 @@ function ChatInput({
                            onDismissMicrophoneError,
                            toggleMicrophone,
                            onFocusInput,
+                           smythModel,
+                           onSmythModel,
                        }: {
         input: string;
         setInput: (value: string) => void;
@@ -662,12 +665,20 @@ function ChatInput({
         onDismissMicrophoneError: () => void;
         toggleMicrophone: () => void | Promise<void>;
         onFocusInput: () => void;
+        smythModel: string;
+        onSmythModel: (model: string) => void;
     }) {
         const [microphonePromptDismissed, setMicrophonePromptDismissed] = useState(false);
 
         return (
             <div className="uiOverlay">
                 <div className="chatInputRow">
+                    <label className="modelPicker" title={BRAIN_MODEL_OPTIONS.find((option) => option.id === smythModel)?.hint}>
+                        <span style={{ color: CHARACTER_BY_ID.smyth.color }}>Smyth</span>
+                        <select value={smythModel} onChange={(event) => onSmythModel(event.target.value)} aria-label="AI model Smyth thinks with">
+                            {BRAIN_MODEL_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+                        </select>
+                    </label>
                     <input
                         value={input}
                         onFocus={onFocusInput}
@@ -969,6 +980,27 @@ export default function Chat({
         }
     });
     const soundOffRef = useRef(soundOff);
+    // The model Smyth thinks with; the realtime model answers by itself, any other writes his replies.
+    const [smythModel, setSmythModel] = useState<string>(() => {
+        try {
+            const saved = localStorage.getItem(SMYTH_MODEL_KEY);
+            if (BRAIN_MODEL_OPTIONS.some((option) => option.id === saved)) return saved!;
+        } catch {
+            // The default then.
+        }
+        return REALTIME_MODEL;
+    });
+    const smythModelRef = useRef(smythModel);
+    const changeSmythModel = (model: string) => {
+        smythModelRef.current = model;
+        setSmythModel(model);
+        try {
+            localStorage.setItem(SMYTH_MODEL_KEY, model);
+        } catch {
+            // Only for this visit then.
+        }
+        groupRef.current?.setBrainModel("smyth", model === REALTIME_MODEL ? null : model);
+    };
     const toggleSound = () => {
         const next = !soundOffRef.current;
         soundOffRef.current = next;
@@ -1153,6 +1185,7 @@ export default function Chat({
         }, conversationAbortRef.current.signal);
         // Before the settings, which start preloading sounds a muted group does not need.
         group.setMuted(soundOffRef.current);
+        group.setBrainModel("smyth", smythModelRef.current === REALTIME_MODEL ? null : smythModelRef.current);
         group.updateSettings(settingsRef.current, speechRateRef.current, transcriptionLanguage(speechLanguageRef.current));
         if (videoRef.current) group.setVideoContext(videoContext(videoRef.current), videoPosition);
         groupRef.current = group;
@@ -1885,6 +1918,8 @@ ${topicGuidance}
                     warmUpBrain();
                     void ensureGroup().connect(addressee).catch(() => {});
                 }}
+                smythModel={smythModel}
+                onSmythModel={changeSmythModel}
             />
 
         </div>

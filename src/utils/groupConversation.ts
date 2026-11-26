@@ -93,10 +93,6 @@ function outputModalities(id: CharacterId, muted: boolean) {
     return muted || CHARACTER_BY_ID[id].expressiveVoice ? ["text"] : ["audio"];
 }
 
-/** Characters whose replies come from their own text model; their realtime session only listens. */
-function hasBrain(id: CharacterId) {
-    return Boolean(CHARACTER_BY_ID[id].brainModel);
-}
 
 /** Web search answers may carry markdown links and URLs; none of that can be spoken. */
 function speakable(text: string) {
@@ -162,6 +158,8 @@ export class GroupConversation {
     private speed = 1;
     /** Sound off: replies only as text, nothing is spoken or generated as audio. */
     private muted = false;
+    /** Text models the user chose for characters (null: the realtime model answers itself). */
+    private brainModels = new Map<CharacterId, string | null>();
     /** ISO 639-1 code the user's speech is transcribed in; null lets the transcriber guess. */
     private language: string | null = null;
     private lines: { speaker: string; text: string }[] = [];
@@ -209,6 +207,34 @@ export class GroupConversation {
     speakingAudio() {
         if (this.speaking && this.speaking === this.voicing) return this.performance?.pieces[this.performance.index]?.audio ?? null;
         return this.speaking ? this.ready.get(this.speaking)?.audioEl ?? null : null;
+    }
+
+    /** Which model writes a character's replies; null when their realtime session answers itself. */
+    private brainModel(id: CharacterId) {
+        return this.brainModels.has(id) ? this.brainModels.get(id)! : CHARACTER_BY_ID[id].brainModel ?? null;
+    }
+
+    /** Characters whose replies come from their own text model; their realtime session only listens. */
+    private hasBrain(id: CharacterId) {
+        return Boolean(this.brainModel(id));
+    }
+
+    /** Lets a text model write a character's replies, or (null) hands them back to the realtime model. */
+    setBrainModel(id: CharacterId, model: string | null) {
+        const hadBrain = this.hasBrain(id);
+        // A reply still running belongs to the old way of answering.
+        if (hadBrain !== Boolean(model)) this.stop(id);
+        this.brainModels.set(id, model);
+        if (hadBrain === this.hasBrain(id)) return;
+        const session = this.ready.get(id);
+        if (!session) return;
+        this.sendInstructions(id, session);
+        // Back on their realtime model, they missed what was said meanwhile.
+        if (hadBrain) {
+            for (const line of this.lines.slice(-HISTORY_FOR_LATE_JOINERS)) {
+                if (line.speaker !== CHARACTER_BY_ID[id].name) this.inject(id, `[${line.speaker}]: ${line.text}`);
+            }
+        }
     }
 
     setMuted(muted: boolean) {
@@ -264,7 +290,7 @@ export class GroupConversation {
         this.interruptAll();
         this.callbacks.onHands([]);
         await this.setAddressee(target);
-        if (hasBrain(target)) {
+        if (this.hasBrain(target)) {
             this.recordUserLine(text, target, target);
             this.callbacks.onUserText(text);
             void this.think(target, { quick: true });
@@ -282,9 +308,9 @@ export class GroupConversation {
     async letSpeak(id: CharacterId, teaser: string) {
         this.callbacks.onHands([]);
         this.interruptAll();
-        if (hasBrain(id)) {
+        if (this.hasBrain(id)) {
             void this.setAddressee(id);
-            void this.think(id, { instructions: interjectionInstructions(CHARACTER_BY_ID[id], this.settingsWithMemory(), teaser) });
+            void this.think(id, { instructions: interjectionInstructions(CHARACTER_BY_ID[id], this.settingsWithMemory(), teaser, true) });
             return;
         }
         const session = await this.connect(id);
@@ -303,7 +329,7 @@ export class GroupConversation {
     /** Tells the character how the sketch went, so they explain it (or apologise). */
     finishDiagram(id: CharacterId, callId: string, result: object) {
         this.sketching = false;
-        if (hasBrain(id)) {
+        if (this.hasBrain(id)) {
             this.toolItems.get(id)?.push({ at: this.lines.length, item: { type: "function_call_output", call_id: callId, output: JSON.stringify(result) } });
             void this.think(id);
             return;
@@ -411,7 +437,7 @@ export class GroupConversation {
 
     private sendInstructions(id: CharacterId, session: Session) {
         if (session.dc.readyState !== "open") return;
-        if (hasBrain(id)) {
+        if (this.hasBrain(id)) {
             // Only listens: transcribes the user and never answers by itself.
             session.dc.send(JSON.stringify({
                 type: "session.update",
@@ -439,7 +465,11 @@ export class GroupConversation {
                 // Real time-stretching; asking for a slower pace in the instructions barely works.
                 audio: {
                     // Guessing the language per utterance mistakes short or quiet German for Japanese or Swedish.
-                    input: { transcription: { model: "gpt-4o-mini-transcribe", ...(this.language ? { language: this.language } : {}) } },
+                    input: {
+                        transcription: { model: "gpt-4o-mini-transcribe", ...(this.language ? { language: this.language } : {}) },
+                        // Answers by itself again, in case a text model wrote this character's replies before.
+                        turn_detection: { type: "server_vad", create_response: true, interrupt_response: true },
+                    },
                     output: { speed: this.speed },
                 },
                 tools: [DRAW_DIAGRAM_TOOL],
@@ -450,7 +480,7 @@ export class GroupConversation {
 
     private inject(id: CharacterId, text: string) {
         // A character with their own model reads the whole conversation on every reply instead.
-        if (hasBrain(id)) return;
+        if (this.hasBrain(id)) return;
         const session = this.ready.get(id);
         if (!session || session.dc.readyState !== "open") return;
         session.dc.send(JSON.stringify({
@@ -483,7 +513,7 @@ export class GroupConversation {
     private stop(id: CharacterId) {
         const session = this.ready.get(id);
         const open = session?.dc.readyState === "open";
-        if (hasBrain(id)) {
+        if (this.hasBrain(id)) {
             this.thinking.get(id)?.abort();
         } else {
             if (!open) return;
@@ -518,7 +548,7 @@ export class GroupConversation {
     }
 
     private handleUserSpeechStart() {
-        if (hasBrain(this.addressee)) warmUpBrain();
+        if (this.hasBrain(this.addressee)) warmUpBrain();
         // The addressed session handles its own barge-in; silence everyone else.
         this.interruptAll(this.addressee);
         // An expressive voice and a model writing elsewhere are outside the session, so they are cut off here.
@@ -537,14 +567,14 @@ export class GroupConversation {
         this.recordUserLine(text, target, heardBy);
         this.callbacks.onUserText(text);
         if (target === heardBy) {
-            if (hasBrain(heardBy)) void this.think(heardBy, { quick: true });
+            if (this.hasBrain(heardBy)) void this.think(heardBy, { quick: true });
             return;
         }
 
         // "Jinx, what do you think?" said to Jenny: Jenny stops, Jinx answers.
         this.stop(heardBy);
         void this.setAddressee(target);
-        if (hasBrain(target)) {
+        if (this.hasBrain(target)) {
             void this.think(target, { quick: true });
             return;
         }
@@ -583,7 +613,7 @@ export class GroupConversation {
         this.replies.delete(id);
         if (!text) return;
         // A character with their own model is already being performed while writing.
-        if (CHARACTER_BY_ID[id].expressiveVoice && !hasBrain(id) && !this.muted) this.perform(id, performance);
+        if (CHARACTER_BY_ID[id].expressiveVoice && !this.hasBrain(id) && !this.muted) this.perform(id, performance);
         const name = CHARACTER_BY_ID[id].name;
         this.addLine(name, text);
         this.injectIntoOthers(id, `[${name}]: ${text}`);
@@ -651,7 +681,8 @@ export class GroupConversation {
     }
 
     private voiceUrl(id: CharacterId, text: string) {
-        return `/api/voice?${new URLSearchParams({ voice: CHARACTER_BY_ID[id].expressiveVoice!, text, speed: String(this.speed) })}`;
+        const character = CHARACTER_BY_ID[id];
+        return `/api/voice?${new URLSearchParams({ voice: character.expressiveVoice ?? character.textVoice!, text, speed: String(this.speed) })}`;
     }
 
     /**
@@ -816,10 +847,10 @@ export class GroupConversation {
             const request = (body: object, abort: AbortController) => fetch("/api/brain", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ instructions: instructions ?? characterInstructions(character, this.settingsWithMemory()), input, ...body }),
+                body: JSON.stringify({ instructions: instructions ?? characterInstructions(character, this.settingsWithMemory(), true), input, ...body }),
                 signal: AbortSignal.any([signal, abort.signal]),
             });
-            const deep = request({ model: character.brainModel, tools: [DRAW_DIAGRAM_TOOL] }, deepController);
+            const deep = request({ model: this.brainModel(id), tools: [DRAW_DIAGRAM_TOOL] }, deepController);
             deep.catch(() => {});
             const sounds = this.soundsFor(id);
             const decision = quick && sounds.length ? await this.decide(request({ task: "react", sounds, recent: this.recentSounds }, reactController)) : null;

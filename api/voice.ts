@@ -3,11 +3,15 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 // Expressive speech for characters whose replies come as text with stage
 // directions such as [laughs] or [whispers]: ElevenLabs v3 performs them.
 // GET, so an <audio> element can play the stream while it is still arriving.
+// Characters who keep their realtime voice (e.g. Smyth with a text model as his
+// brain) are read by OpenAI's speech model in that same voice instead.
 
 /** Voices the site may use; anything else would let others spend the quota on any voice. */
 const VOICES = new Set([
     "SOYHLrjzK2X1ezoPC6cr", // Harry: young and fierce (Jinx); the highest of the young premade voices
 ]);
+/** OpenAI voices, the same as the characters' realtime voices. */
+const OPENAI_VOICES = new Set(["cedar"]);
 // Long, thoughtful replies must be spoken in full; ElevenLabs v3 takes up to 3,000 characters per request.
 const MAX_TEXT = 2800;
 
@@ -15,12 +19,43 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method !== "GET") return res.status(405).send("Method not allowed");
     const text = String(req.query.text ?? "").trim().slice(0, MAX_TEXT);
     const voice = String(req.query.voice ?? "");
-    if (!text || !VOICES.has(voice)) return res.status(400).send("Missing text or unknown voice");
-    if (!process.env.ELEVENLABS_API_KEY) return res.status(500).send("ELEVENLABS_API_KEY is not set");
-    // ElevenLabs accepts 0.7–1.2; the site's slider goes down to 0.55.
-    const speed = Math.min(1.2, Math.max(0.7, Number(req.query.speed) || 1));
+    if (!text || !(VOICES.has(voice) || OPENAI_VOICES.has(voice))) return res.status(400).send("Missing text or unknown voice");
+    const upstream = OPENAI_VOICES.has(voice) ? await openAiSpeech(text, voice, Number(req.query.speed) || 1) : await elevenLabs(text, voice, Number(req.query.speed) || 1);
+    if (!upstream) return res.status(500).send("Voice service key is not set");
+    if (!upstream.ok || !upstream.body) {
+        const detail = await upstream.text().catch(() => "");
+        console.error("Voice service error", upstream.status, detail.slice(0, 500));
+        return res.status(502).send(`Voice service error ${upstream.status}`);
+    }
 
-    const upstream = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice}/stream?output_format=mp3_44100_128`, {
+    res.setHeader("Content-Type", "audio/mpeg");
+    // The same line at the same speed sounds the same; let the edge answer repeats.
+    res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=86400");
+    for await (const chunk of upstream.body as unknown as AsyncIterable<Uint8Array>) res.write(Buffer.from(chunk));
+    res.end();
+}
+
+async function openAiSpeech(text: string, voice: string, speed: number) {
+    if (!process.env.OPENAI_API_KEY) return null;
+    return fetch("https://api.openai.com/v1/audio/speech", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+            model: "gpt-4o-mini-tts",
+            voice,
+            input: text,
+            instructions: "Speak calmly and clearly, like a friendly scientist in a relaxed conversation.",
+            response_format: "mp3",
+            speed: Math.min(4, Math.max(0.25, speed)),
+        }),
+    });
+}
+
+async function elevenLabs(text: string, voice: string, requestedSpeed: number) {
+    if (!process.env.ELEVENLABS_API_KEY) return null;
+    // ElevenLabs accepts 0.7–1.2; the site's slider goes down to 0.55.
+    const speed = Math.min(1.2, Math.max(0.7, requestedSpeed));
+    return fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice}/stream?output_format=mp3_44100_128`, {
         method: "POST",
         headers: {
             "xi-api-key": process.env.ELEVENLABS_API_KEY,
@@ -34,15 +69,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             voice_settings: { stability: 0.5, speed },
         }),
     });
-    if (!upstream.ok || !upstream.body) {
-        const detail = await upstream.text().catch(() => "");
-        console.error("ElevenLabs error", upstream.status, detail.slice(0, 500));
-        return res.status(502).send(`Voice service error ${upstream.status}`);
-    }
-
-    res.setHeader("Content-Type", "audio/mpeg");
-    // The same line at the same speed sounds the same; let the edge answer repeats.
-    res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=86400");
-    for await (const chunk of upstream.body as unknown as AsyncIterable<Uint8Array>) res.write(Buffer.from(chunk));
-    res.end();
 }
