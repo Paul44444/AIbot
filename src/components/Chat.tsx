@@ -674,7 +674,7 @@ function ChatInput({
             <div className="uiOverlay">
                 <div className="chatInputRow">
                     <label className="modelPicker" title={BRAIN_MODEL_OPTIONS.find((option) => option.id === smythModel)?.hint}>
-                        <span style={{ color: CHARACTER_BY_ID.smyth.color }}>Smyth</span>
+                        <span>Smyth</span>
                         <select value={smythModel} onChange={(event) => onSmythModel(event.target.value)} aria-label="AI model Smyth thinks with">
                             {BRAIN_MODEL_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
                         </select>

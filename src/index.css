@@ -124,9 +124,10 @@ button:focus-visible {
     font: 700 13px/1 system-ui, sans-serif;
     cursor: pointer;
 }
-.modelPicker span { text-shadow: 0 0 1px rgba(0, 0, 0, 0.35); }
+/* Smyth's colour, darkened to be readable on white. */
+.modelPicker span { color: #2f6db5; }
 .modelPicker select {
-    max-width: 150px;
+    width: 122px;
     height: 100%;
     padding: 0 4px;
     border: 0;
