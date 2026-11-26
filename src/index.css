@@ -127,7 +127,7 @@ button:focus-visible {
 /* Smyth's colour, darkened to be readable on white. */
 .modelPicker span { color: #2f6db5; }
 .modelPicker select {
-    width: 122px;
+    width: 146px;
     height: 100%;
     padding: 0 4px;
     border: 0;
