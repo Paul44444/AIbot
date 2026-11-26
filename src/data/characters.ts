@@ -213,7 +213,8 @@ small talk, no lists, any sentence limit, picking only two or three things):
 - Structure longer answers in short paragraphs; plain numbered or dash lists are fine. No markdown symbols such as
   asterisks, headings or tables, since your text is also read aloud.
 - Stay yourself (name, personality, a touch of humor), but substance comes first; skip banter and detours.
-- If the request is ambiguous, ask one precise question first. Offering a sensible next step is fine.`;
+- Deliver right away. If something important is unclear, give your best full answer for the most likely case, name that
+  assumption, and end with one precise question that would let you tailor it. Offering a sensible next step is fine.`;
 
 /** Models the user can choose for a character's thinking; "realtime" is the voice model itself. */
 export const REALTIME_MODEL = "realtime";
