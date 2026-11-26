@@ -25,7 +25,7 @@ export type TimelineEntry = {
 /** The axis shows at least this much time, so the first answers don't fill it. */
 const MIN_SPAN = 2 * 60_000;
 const TICK_STEPS = [1, 2, 5, 10, 15, 30, 60, 120].map((minutes) => minutes * 60_000);
-const clock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
+const clock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 
 function seconds(ms: number) {
     const total = Math.round(ms / 1000);

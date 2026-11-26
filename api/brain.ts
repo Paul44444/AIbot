@@ -100,8 +100,8 @@ function withBudget(instructions: string, budget: Body["budget"]) {
     return `${instructions}
 
 [Time] The user was told this answer takes about ${budget.seconds} seconds${budget.plan ? ` (${budget.plan})` : ""}, and sees a
-timeline of how long each answer takes. Plan to finish in about that time: research and think only as much as fits,
-and rather give a good answer on time than a perfect one late.`;
+timeline of how long each answer takes. Plan to finish in about that time: research and think only as much as fits. The time limits your research,
+not your answer: still write the full answer the request deserves, with the links you found.`;
 }
 
 const REACT_MODEL = "gpt-5.4-mini";
