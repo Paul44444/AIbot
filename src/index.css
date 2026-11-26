@@ -138,6 +138,40 @@ button:focus-visible {
     transform: none;
 }
 
+/* Expanded: most of the screen, below the top controls and above the character bar and input. */
+.uiAnswer.isExpanded {
+    top: 112px;
+    right: 20px;
+    bottom: 150px;
+    width: auto;
+    max-height: none;
+    padding: 22px 28px;
+    background: rgba(40, 42, 54, 0.88);
+    transition: none;
+}
+.transcriptExpand {
+    position: sticky;
+    top: 0;
+    float: right;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    margin: -8px -8px 6px 10px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    color: white;
+    background: rgba(30, 33, 45, 0.75);
+    cursor: pointer;
+    opacity: 0.75;
+    transition: opacity 140ms ease, background-color 140ms ease;
+}
+.transcriptExpand:hover,
+.transcriptExpand:focus-visible { opacity: 1; background: rgba(90, 151, 255, 0.85); }
+.uiAnswer.isExpanded .transcriptExpand { margin: -14px -20px 6px 10px; }
+
 .transcriptMessage { margin-bottom: 12px; }
 .transcriptMessage > strong { text-transform: capitalize; color: #b9c9ff; }
 .transcriptWord {
@@ -2426,4 +2460,11 @@ button:focus-visible {
     .calMonthWeekday { text-align: center; padding: 4px 0; font-size: 11px; }
     .calChip small { display: none; }
     .calEditorRow > span { flex-basis: 74px; }
+}
+
+@media (max-width: 700px) {
+    /* Clear of the column of buttons on the right edge. */
+    .uiAnswer { right: 58px; }
+    .uiAnswer.isExpanded { top: 152px; left: 10px; right: 58px; bottom: 150px; height: auto; padding: 14px; }
+    .uiAnswer.isExpanded .transcriptExpand { margin: -6px -6px 6px 10px; }
 }

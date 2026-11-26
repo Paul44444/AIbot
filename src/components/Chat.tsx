@@ -7,7 +7,7 @@ import type { Message } from "../types/chat";
 import { useEffect, useRef } from 'react'
 
 import { loadStoredConversations, upsertConversationNode } from "../data/conversationStorage";
-import { Mic, MicOff, Lock, Check, LoaderCircle, Pause, Play, PencilLine, CalendarDays } from "lucide-react";
+import { Mic, MicOff, Lock, Check, LoaderCircle, Pause, Play, PencilLine, CalendarDays, Maximize2, Minimize2 } from "lucide-react";
 import { useTopicProgress } from "../hooks/useTopicProgress";
 import {
     FREE_CONVERSATION_TOPIC_ID,
@@ -100,6 +100,8 @@ function InteractiveText({
     );
 }
 
+const TRANSCRIPT_EXPANDED_KEY = "transcriptExpanded";
+
 function ChatTranscript({
                             messages,
                             loading,
@@ -115,6 +117,22 @@ function ChatTranscript({
     const [lookupWord, setLookupWord] = useState<string | null>(null);
     const [lookupError, setLookupError] = useState(false);
     const lookupIdRef = useRef(0);
+    // Expanded, the panel covers most of the screen; the menus around it stay visible.
+    const [expanded, setExpanded] = useState(() => {
+        try {
+            return localStorage.getItem(TRANSCRIPT_EXPANDED_KEY) === "true";
+        } catch {
+            return false;
+        }
+    });
+    const toggleExpanded = () => setExpanded((value) => {
+        try {
+            localStorage.setItem(TRANSCRIPT_EXPANDED_KEY, String(!value));
+        } catch {
+            // Only a convenience.
+        }
+        return !value;
+    });
 
     useEffect(() => {
         const controller = new AbortController();
@@ -148,7 +166,17 @@ function ChatTranscript({
 
     return (
         <>
-            <div className="uiAnswer">
+            <div className={`uiAnswer${expanded ? " isExpanded" : ""}`}>
+                <button
+                    type="button"
+                    className="transcriptExpand"
+                    onClick={toggleExpanded}
+                    aria-pressed={expanded}
+                    aria-label={expanded ? "Shrink the panel" : "Expand the panel"}
+                    title={expanded ? "Shrink" : "Expand"}
+                >
+                    {expanded ? <Minimize2 size={16} aria-hidden="true" /> : <Maximize2 size={16} aria-hidden="true" />}
+                </button>
                 {messages.map((msg, index) => (
                     <div className={`transcriptMessage transcriptMessage-${msg.role}`} key={index}>
                         <strong style={characterBySpeaker(msg.speaker) ? { color: characterBySpeaker(msg.speaker)!.color } : undefined}>
