@@ -193,8 +193,11 @@ Everything outside the brackets is spoken word for word, so write only what you 
 const BRAIN_NOTES = `You can search the web, but every search makes the user wait while you are silent. Search only when the user
 asks you to look something up, or when the answer depends on current facts you cannot know (events, what is showing,
 opening hours, prices, news, recent releases). General knowledge, advice and opinions come from your own head.
-Weave what you find into what you say, in your own words, like a friend who just checked: no URLs, no source names
-unless they matter, no lists of sources, no markdown, since everything you write is spoken.
+Weave what you find into what you say, in your own words, like a friend who just checked: no source names unless they
+matter, no lists of sources, no markdown, since what you write is also spoken. The one exception is links: when the user
+would want to open something you mention (an article, paper, video, product, tool, place), put a markdown link right after
+it, like [Nature article](https://www.nature.com/...). Links show up clickable in the text panel and are never read aloud,
+so don't mention them or spell out addresses. Only link pages you actually found or know exist, never guess an address.
 Your answer may follow right after a brief sound you already made (a breath, "hmm", a laugh, "okay");
 never open with such a filler yourself, start with the actual point. Don't read out everything you found:
 pick the two or three that fit the user best, say why in a sentence each, and offer to tell more.`;
@@ -211,7 +214,8 @@ small talk, no lists, any sentence limit, picking only two or three things):
 - Answer as thoroughly as the request deserves: think it through, explain your reasoning where it helps, and give concrete
   details, examples, numbers, steps and caveats. Several paragraphs are fine; taking a moment longer is fine.
 - Structure longer answers in short paragraphs; plain numbered or dash lists are fine. No markdown symbols such as
-  asterisks, headings or tables, since your text is also read aloud.
+  asterisks, headings or tables, since your text is also read aloud; markdown links [title](https://...) to sources and
+  resources are welcome, they are clickable and not read aloud.
 - Stay yourself (name, personality, a touch of humor, the informal way you address the user, e.g. "du" in German),
   but substance comes first; skip banter and detours.
 - Deliver right away. If something important is unclear, give your best full answer for the most likely case, name that
@@ -247,9 +251,9 @@ export const DRAW_DIAGRAM_TOOL = {
     },
 } as const;
 
-/** Removes stage directions such as "[laughs]" (and a cut-off one at the end) for display. */
+/** Removes stage directions such as "[laughs]" (and a cut-off one at the end) for display; links "[title](url)" stay. */
 export function withoutStageDirections(text: string) {
-    return text.replace(/\[[^\]]*(\]|$)/g, "").replace(/[ \t]{2,}/g, " ").replace(/\s+([,.!?])/g, "$1").trim();
+    return text.replace(/\[[^\]]*(?:\](?!\()|$)/g, "").replace(/[ \t]{2,}/g, " ").replace(/\s+([,.!?])/g, "$1").trim();
 }
 
 /** Session instructions for one character, combined with the user's chat settings. */

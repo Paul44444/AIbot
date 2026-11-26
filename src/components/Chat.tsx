@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useImperativeHandle, useMemo, useState } from "react";
 import { outdoorInput } from "./outdoor/input";
-import type { CSSProperties, Ref } from "react";
+import type { CSSProperties, ReactNode, Ref } from "react";
 import type { Message } from "../types/chat";
 
 //08062026A import { useEffect, useRef } from 'react'
@@ -98,6 +98,53 @@ function InteractiveText({
             <span key={`${part.index}-${index}`}>{part.segment}</span>
         )
     );
+}
+
+/** Markdown links "[title](https://…)" and bare web addresses; only http(s), so nothing else can run on a click. */
+const LINK_PATTERN = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()[\]]+[^\s<>()[\].,;:!?"'’”])/g;
+
+/** "nature.com/articles/s41586…" for a bare address. */
+function shortUrl(url: string) {
+    try {
+        const { hostname, pathname } = new URL(url);
+        const path = pathname === "/" ? "" : pathname;
+        return `${hostname.replace(/^www\./, "")}${path.length > 24 ? `${path.slice(0, 24)}…` : path}`;
+    } catch {
+        return url;
+    }
+}
+
+/** A message with its links clickable (opening in a new tab) and the rest as interactive words. */
+function LinkedText({ text, onWord, onWordClick }: {
+    text: string;
+    onWord: (word: string, context: string) => void;
+    onWordClick?: (characterIndex: number) => void;
+}) {
+    // Bold and heading marks are not meant to be seen.
+    const clean = text.replace(/\*\*|__|^#+\s*/gm, "");
+    const parts: ReactNode[] = [];
+    let last = 0;
+    const words = (from: number, to: number) => {
+        if (to <= from) return;
+        parts.push(<InteractiveText
+            key={`t${from}`}
+            text={clean.slice(from, to)}
+            onWord={onWord}
+            onWordClick={onWordClick && ((index) => onWordClick(from + index))}
+        />);
+    };
+    for (const match of clean.matchAll(LINK_PATTERN)) {
+        words(last, match.index);
+        const url = match[2] ?? match[3];
+        parts.push(
+            <a key={`l${match.index}`} className="transcriptLink" href={url} target="_blank" rel="noopener noreferrer" title={url}>
+                {match[1] ?? shortUrl(url)}
+            </a>,
+        );
+        last = match.index + match[0].length;
+    }
+    words(last, clean.length);
+    return parts;
 }
 
 const TRANSCRIPT_EXPANDED_KEY = "transcriptExpanded";
@@ -202,7 +249,7 @@ function ChatTranscript({
                             <button type="button" className="transcriptSketch" onClick={() => onOpenDiagram(msg)}>
                                 {msg.content} <span>Open sketch</span>
                             </button>
-                        ) : <InteractiveText
+                        ) : <LinkedText
                             text={msg.content}
                             onWord={showWordInfo}
                             onWordClick={msg.role === "assistant" ? (characterIndex) => {

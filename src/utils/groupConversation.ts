@@ -647,7 +647,7 @@ export class GroupConversation {
         if (CHARACTER_BY_ID[id].expressiveVoice && !this.hasBrain(id) && !this.muted) this.perform(id, performance);
         const name = CHARACTER_BY_ID[id].name;
         this.addLine(name, text);
-        this.injectIntoOthers(id, `[${name}]: ${text}`);
+        this.injectIntoOthers(id, `[${name}]: ${speakable(text)}`);
         this.callbacks.onReplyDone(id, text);
         void this.askDirector(id);
     }
@@ -877,7 +877,8 @@ export class GroupConversation {
                 if (!written) this.callbacks.onActivity?.(id, null);
                 written += event.text;
                 unspoken += event.text;
-                const shown = speakable(written);
+                // Links stay in the text panel (clickable there); only the voice skips them.
+                const shown = written;
                 this.replies.set(id, shown);
                 this.callbacks.onReplyDelta(id, withoutStageDirections(shown));
                 // The first piece is short so the voice starts early; later ones longer for a natural flow.

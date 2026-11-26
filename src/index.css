@@ -214,6 +214,15 @@ button:focus-visible {
 .transcriptMessage { margin-bottom: 12px; white-space: pre-line; }
 /* Readable line length on the wide panel. */
 .uiAnswer.isExpanded .transcriptMessage { max-width: 920px; margin-bottom: 18px; }
+.transcriptLink {
+    color: #9cc8ff;
+    text-decoration: underline;
+    text-decoration-color: rgba(156, 200, 255, 0.5);
+    text-underline-offset: 2px;
+    overflow-wrap: anywhere;
+}
+.transcriptLink:hover { color: #c4ddff; text-decoration-color: currentColor; }
+
 .transcriptActivity {
     display: flex;
     align-items: flex-start;
