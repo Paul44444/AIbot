@@ -45,7 +45,7 @@ import type { DiagramSpec } from "../types/diagram";
 import type { DiagramState, SketchEntry, SketchLibrary } from "./DiagramPanel";
 import type { YouTubeHandle, YouTubeRequest } from "./YouTubePanel";
 import { formatTime, type VideoDetails } from "../types/youtube";
-import { BRAIN_MODEL_OPTIONS, CHARACTERS, CHARACTER_BY_ID, REALTIME_MODEL, characterBySpeaker, type CharacterId } from "../data/characters";
+import { BRAIN_MODEL_OPTIONS, CHARACTERS, CHARACTER_BY_ID, REALTIME_MODEL, characterBySpeaker, type CharacterId, type ConversationMode } from "../data/characters";
 
 //import ChatTranscript from "./ChatTranscript";
 
@@ -109,32 +109,21 @@ function ChatTranscript({
                             loading,
                             assistantName,
                             onOpenDiagram,
+                            expanded,
+                            onToggleExpanded,
                         }: {
     messages: Message[];
     loading: boolean;
     assistantName: string;
     onOpenDiagram: (message: Message) => void;
+    /** Covers most of the screen (the menus around it stay visible); the group then works in professional mode. */
+    expanded: boolean;
+    onToggleExpanded: () => void;
 }) {
     const [wordInfo, setWordInfo] = useState<WordInfo | null>(null);
     const [lookupWord, setLookupWord] = useState<string | null>(null);
     const [lookupError, setLookupError] = useState(false);
     const lookupIdRef = useRef(0);
-    // Expanded, the panel covers most of the screen; the menus around it stay visible.
-    const [expanded, setExpanded] = useState(() => {
-        try {
-            return localStorage.getItem(TRANSCRIPT_EXPANDED_KEY) === "true";
-        } catch {
-            return false;
-        }
-    });
-    const toggleExpanded = () => setExpanded((value) => {
-        try {
-            localStorage.setItem(TRANSCRIPT_EXPANDED_KEY, String(!value));
-        } catch {
-            // Only a convenience.
-        }
-        return !value;
-    });
 
     useEffect(() => {
         const controller = new AbortController();
@@ -172,7 +161,7 @@ function ChatTranscript({
                 <button
                     type="button"
                     className="transcriptExpand"
-                    onClick={toggleExpanded}
+                    onClick={onToggleExpanded}
                     aria-pressed={expanded}
                     aria-label={expanded ? "Shrink the panel" : "Expand the panel"}
                     title={expanded ? "Shrink" : "Expand"}
@@ -991,6 +980,30 @@ export default function Chat({
         return REALTIME_MODEL;
     });
     const smythModelRef = useRef(smythModel);
+    // The maximized text panel is for work: the group switches to professional mode (see ConversationMode).
+    const [transcriptExpanded, setTranscriptExpanded] = useState(() => {
+        try {
+            return localStorage.getItem(TRANSCRIPT_EXPANDED_KEY) === "true";
+        } catch {
+            return false;
+        }
+    });
+    const conversationModeRef = useRef<ConversationMode>(transcriptExpanded ? "professional" : "casual");
+    const toggleTranscriptExpanded = () => {
+        const next = !transcriptExpanded;
+        setTranscriptExpanded(next);
+        try {
+            localStorage.setItem(TRANSCRIPT_EXPANDED_KEY, String(next));
+        } catch {
+            // Only a convenience.
+        }
+        conversationModeRef.current = next ? "professional" : "casual";
+        groupRef.current?.setMode(conversationModeRef.current);
+        // Rebuilds the settings without (or again with) the sentence limit.
+        updateRealtimeSession();
+    };
+    /** The sentence limit applies to casual conversation only. */
+    const sentenceLimit = () => conversationModeRef.current === "professional" ? 0 : sentenceCountRef.current;
     const changeSmythModel = (model: string) => {
         smythModelRef.current = model;
         setSmythModel(model);
@@ -1146,7 +1159,7 @@ export default function Chat({
                     messageId = crypto.randomUUID();
                     replyIds.set(id, messageId);
                 }
-                const content = limitTextToSentences(text, sentenceCountRef.current);
+                const content = limitTextToSentences(text, sentenceLimit());
                 const replyId = messageId;
                 setCurrentExpression(detectExpression(text));
                 setSpeechPreparing(false);
@@ -1157,7 +1170,7 @@ export default function Chat({
             onReplyDone: (id, text) => {
                 const replyId = replyIds.get(id);
                 replyIds.delete(id);
-                const content = limitTextToSentences(text, sentenceCountRef.current);
+                const content = limitTextToSentences(text, sentenceLimit());
                 setRealtimeMessages((prev) => replyId && prev.some((message) => message.id === replyId)
                     ? prev.map((message) => message.id === replyId ? { ...message, content } : message)
                     : [...prev, { id: crypto.randomUUID(), role: "assistant", speaker: id, content }]);
@@ -1185,6 +1198,7 @@ export default function Chat({
         }, conversationAbortRef.current.signal);
         // Before the settings, which start preloading sounds a muted group does not need.
         group.setMuted(soundOffRef.current);
+        group.setMode(conversationModeRef.current);
         group.setBrainModel("smyth", smythModelRef.current === REALTIME_MODEL ? null : smythModelRef.current);
         group.updateSettings(settingsRef.current, speechRateRef.current, transcriptionLanguage(speechLanguageRef.current));
         if (videoRef.current) group.setVideoContext(videoContext(videoRef.current), videoPosition);
@@ -1279,7 +1293,7 @@ export default function Chat({
     const updateRealtimeSession = (count?: number, topic?: string, rate?: number, language?: string) => {
         const languageToUse = language ?? speechLanguageRef.current;
         const spokenLanguage = SPEECH_LANGUAGES.find((item) => item.code === languageToUse);
-        const sentenceCountToUse = count !== undefined ? count : sentenceCount;
+        const sentenceCountToUse = conversationModeRef.current === "professional" ? 0 : count !== undefined ? count : sentenceCount;
         const topicToUse = topic !== undefined ? topic : selectedTopic;
         const speechRateToUse = rate !== undefined ? rate : speechRate;
 
@@ -1850,6 +1864,8 @@ ${topicGuidance}
                     const entry = sketchLibrary.current.find((candidate) => candidate.spec === message.diagram);
                     if (entry) openSketch(entry);
                 }}
+                expanded={transcriptExpanded}
+                onToggleExpanded={toggleTranscriptExpanded}
             />
 
             {(gapWordsLoading || gapWordsError || gapWords.length > 0) && (

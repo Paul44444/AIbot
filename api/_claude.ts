@@ -47,7 +47,14 @@ function toClaude(instructions: string, input: Item[]) {
     return { system: [instructions, ...notes].join("\n\n"), messages };
 }
 
-export async function streamClaude(model: string, instructions: string, input: unknown[], functions: FunctionTool[], res: VercelResponse) {
+export async function streamClaude(
+    model: string,
+    instructions: string,
+    input: unknown[],
+    functions: FunctionTool[],
+    res: VercelResponse,
+    effort: "low" | "high",
+) {
     if (!process.env.ANTHROPIC_API_KEY) return res.status(500).send("ANTHROPIC_API_KEY is not set");
     client ??= new Anthropic();
     const { system, messages } = toClaude(instructions, input as Item[]);
@@ -71,8 +78,8 @@ export async function streamClaude(model: string, instructions: string, input: u
                 system,
                 messages,
                 tools,
-                // Conversation needs speed more than deep deliberation.
-                output_config: { effort: "low" },
+                // Conversation needs speed more than deep deliberation; a work session gets more thought.
+                output_config: { effort },
                 // Should a safety check decline, a related model answers instead of nobody.
                 betas: ["server-side-fallback-2026-07-01"],
                 fallbacks: "default",

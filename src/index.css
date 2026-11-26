@@ -210,7 +210,10 @@ button:focus-visible {
 .transcriptExpand:focus-visible { opacity: 1; background: rgba(90, 151, 255, 0.85); }
 .uiAnswer.isExpanded .transcriptExpand { margin: -14px -20px 6px 10px; }
 
-.transcriptMessage { margin-bottom: 12px; }
+/* Longer answers come in paragraphs and lists; keep their line breaks. */
+.transcriptMessage { margin-bottom: 12px; white-space: pre-line; }
+/* Readable line length on the wide panel. */
+.uiAnswer.isExpanded .transcriptMessage { max-width: 920px; margin-bottom: 18px; }
 .transcriptMessage > strong { text-transform: capitalize; color: #b9c9ff; }
 .transcriptWord {
     appearance: none;

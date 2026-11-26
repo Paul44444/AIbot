@@ -16,6 +16,8 @@ const MAX_INPUT_ITEMS = 120;
 
 type Body = {
     model?: string;
+    /** "professional" (a work session) gets more thinking than casual conversation. */
+    mode?: string;
     instructions?: string;
     input?: unknown[];
     /** Function tools the character may call (e.g. draw_diagram); web search is always available. */
@@ -212,15 +214,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const model = body.model ?? "";
     if (!MODELS.has(model)) return res.status(400).send("Unknown model");
     const functions = (body.tools ?? []).filter((tool) => tool?.type === "function");
-    if (CLAUDE_MODELS.has(model)) return streamClaude(model, body.instructions, body.input, functions, res);
+    const professional = body.mode === "professional";
+    if (CLAUDE_MODELS.has(model)) return streamClaude(model, body.instructions, body.input, functions, res, professional ? "high" : "low");
 
     await streamModel({
         model,
         instructions: body.instructions,
         input: body.input,
         tools: [{ type: "web_search" }, ...functions],
-        // The lowest effort this model takes; conversation needs speed more than deep deliberation.
-        reasoning: { effort: "low" },
+        // The lowest effort this model takes; conversation needs speed more than deep deliberation. Work can wait a little.
+        reasoning: { effort: professional ? "medium" : "low" },
     }, res, (delta) => send(res, { type: "delta", text: delta }), (event) => {
         if (event.type === "response.output_item.done" && event.item?.type === "function_call") {
             send(res, { type: "call", name: event.item.name, callId: event.item.call_id, arguments: event.item.arguments ?? "{}" });

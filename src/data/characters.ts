@@ -199,6 +199,22 @@ Your answer may follow right after a brief sound you already made (a breath, "hm
 never open with such a filler yourself, start with the actual point. Don't read out everything you found:
 pick the two or three that fit the user best, say why in a sentence each, and offer to tell more.`;
 
+/**
+ * Casual: a relaxed spoken hangout with short, natural replies. Professional: a focused working
+ * session (the large text panel), where answers may be as long and considered as with any AI assistant.
+ */
+export type ConversationMode = "casual" | "professional";
+
+export const PROFESSIONAL_RULES = `[Mode: work session] The user opened the large text panel to work with you. This is now a
+focused working session, like with a capable AI assistant, and these rules override the casual ones above (short replies,
+small talk, no lists, any sentence limit, picking only two or three things):
+- Answer as thoroughly as the request deserves: think it through, explain your reasoning where it helps, and give concrete
+  details, examples, numbers, steps and caveats. Several paragraphs are fine; taking a moment longer is fine.
+- Structure longer answers in short paragraphs; plain numbered or dash lists are fine. No markdown symbols such as
+  asterisks, headings or tables, since your text is also read aloud.
+- Stay yourself (name, personality, a touch of humor), but substance comes first; skip banter and detours.
+- If the request is ambiguous, ask one precise question first. Offering a sensible next step is fine.`;
+
 /** Models the user can choose for a character's thinking; "realtime" is the voice model itself. */
 export const REALTIME_MODEL = "realtime";
 export const BRAIN_MODEL_OPTIONS = [

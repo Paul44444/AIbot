@@ -6,6 +6,8 @@ import {
     CHARACTERS,
     CHARACTER_BY_ID,
     DRAW_DIAGRAM_TOOL,
+    PROFESSIONAL_RULES,
+    type ConversationMode,
     characterInstructions,
     interjectionInstructions,
     withoutStageDirections,
@@ -158,6 +160,8 @@ export class GroupConversation {
     private speed = 1;
     /** Sound off: replies only as text, nothing is spoken or generated as audio. */
     private muted = false;
+    /** Casual hangout or professional work session (see ConversationMode). */
+    private mode: ConversationMode = "casual";
     /** Text models the user chose for characters (null: the realtime model answers itself). */
     private brainModels = new Map<CharacterId, string | null>();
     /** ISO 639-1 code the user's speech is transcribed in; null lets the transcriber guess. */
@@ -235,6 +239,12 @@ export class GroupConversation {
                 if (line.speaker !== CHARACTER_BY_ID[id].name) this.inject(id, `[${line.speaker}]: ${line.text}`);
             }
         }
+    }
+
+    setMode(mode: ConversationMode) {
+        if (this.mode === mode) return;
+        this.mode = mode;
+        for (const [id, session] of this.ready) this.sendInstructions(id, session);
     }
 
     setMuted(muted: boolean) {
@@ -501,7 +511,8 @@ export class GroupConversation {
 
     /** The user's settings plus what the group remembers from earlier conversations and the user's calendar. */
     private settingsWithMemory() {
-        return `${this.settings}\n\n${memoryContext()}\n\n${calendarContext()}`;
+        const mode = this.mode === "professional" ? `\n\n${PROFESSIONAL_RULES}` : "";
+        return `${this.settings}\n\n${memoryContext()}\n\n${calendarContext()}${mode}`;
     }
 
     private recordUserLine(text: string, to: CharacterId, heardBy: CharacterId) {
@@ -850,10 +861,11 @@ export class GroupConversation {
                 body: JSON.stringify({ instructions: instructions ?? characterInstructions(character, this.settingsWithMemory(), true), input, ...body }),
                 signal: AbortSignal.any([signal, abort.signal]),
             });
-            const deep = request({ model: this.brainModel(id), tools: [DRAW_DIAGRAM_TOOL] }, deepController);
+            const deep = request({ model: this.brainModel(id), mode: this.mode, tools: [DRAW_DIAGRAM_TOOL] }, deepController);
             deep.catch(() => {});
             const sounds = this.soundsFor(id);
-            const decision = quick && sounds.length ? await this.decide(request({ task: "react", sounds, recent: this.recentSounds }, reactController)) : null;
+            // At work every answer gets the considered model, no quick reply.
+            const decision = quick && sounds.length && this.mode === "casual" ? await this.decide(request({ task: "react", sounds, recent: this.recentSounds }, reactController)) : null;
             if (decision?.mode === "reply") {
                 deepController.abort();
                 if (!(await perform(decision.rest))) throw new Error("Empty quick reply");
