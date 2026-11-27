@@ -1,7 +1,7 @@
 export type CharacterId = "jenny" | "jinx" | "smyth";
 
 /** Who the user talks to, and whose room they are in, when the site opens. */
-export const START_CHARACTER: CharacterId = "smyth";
+export const START_CHARACTER: CharacterId = "jinx";
 
 /** Something a character says or does out loud the moment the user stops talking, while their answer is still being written. */
 export type Sound = {

@@ -150,7 +150,8 @@ function LinkedText({ text, onWord, onWordClick }: {
 }
 
 const TRANSCRIPT_EXPANDED_KEY = "transcriptExpanded";
-const PATIENT_MODE_KEY = "patientMode";
+/** Patient mode is on unless the user turned it off. */
+const PATIENT_MODE_OFF_KEY = "patientModeOff";
 const SOUND_OFF_KEY = "soundOff";
 const SMYTH_MODEL_KEY = "smythModel";
 
@@ -1089,9 +1090,9 @@ export default function Chat({
     // Patient mode: the characters play patients for a medical student to interview.
     const [patientMode, setPatientMode] = useState(() => {
         try {
-            return localStorage.getItem(PATIENT_MODE_KEY) === "true";
+            return localStorage.getItem(PATIENT_MODE_OFF_KEY) !== "true";
         } catch {
-            return false;
+            return true;
         }
     });
     const patientModeRef = useRef(patientMode);
@@ -1105,7 +1106,7 @@ export default function Chat({
         setPatientMode(next);
         setRevealedCase(null);
         try {
-            localStorage.setItem(PATIENT_MODE_KEY, String(next));
+            localStorage.setItem(PATIENT_MODE_OFF_KEY, String(!next));
         } catch {
             // Only for this visit then.
         }
