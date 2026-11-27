@@ -2149,6 +2149,93 @@ button:focus-visible {
 .calendarButton:hover::after,
 .calendarButton:focus-visible::after { opacity: 1; }
 
+/* Patient mode (history-taking practice for medical students). */
+.patientButton {
+    position: fixed;
+    top: 20px;
+    right: 558px;
+    z-index: 10000;
+    width: 42px;
+    height: 40px;
+    padding: 0;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    background: rgba(32, 39, 58, 0.9);
+    color: white;
+    display: grid;
+    place-items: center;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+    transition: transform 160ms ease, background-color 160ms ease;
+}
+.patientButton:hover,
+.patientButton:focus-visible { transform: translateY(-2px); background: #2fa58f; }
+.patientButton.isActive { background: #2fa58f; }
+.patientButton::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    top: calc(100% + 9px);
+    right: 0;
+    width: max-content;
+    padding: 7px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 8px;
+    color: white;
+    background: rgba(24, 30, 48, 0.96);
+    font-size: 12px;
+    font-weight: 600;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 140ms ease;
+}
+.patientButton:hover::after,
+.patientButton:focus-visible::after { opacity: 1; }
+
+.patientCard {
+    position: fixed;
+    top: 76px;
+    right: 20px;
+    z-index: 9999;
+    box-sizing: border-box;
+    width: 300px;
+    max-height: calc(100vh - 260px);
+    overflow-y: auto;
+    padding: 14px 16px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-left: 4px solid var(--member-color);
+    border-radius: 14px;
+    color: rgba(255, 255, 255, 0.92);
+    background: rgba(22, 25, 38, 0.92);
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.35);
+    font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+    animation: diagramIn 220ms ease-out;
+}
+.patientCard h2 { margin: 4px 0 2px; font-size: 17px; color: white; }
+.patientCardMode { color: #6fd8c3; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; font-size: 10.5px; }
+.patientCardReason { margin: 0 0 8px; font-style: italic; color: rgba(255, 255, 255, 0.85); }
+.patientCardHint { margin: 0 0 10px; color: rgba(255, 255, 255, 0.6); font-size: 12px; }
+.patientCardOthers { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.patientCardOthers button,
+.patientCardReveal {
+    padding: 4px 9px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 999px;
+    color: white;
+    background: rgba(255, 255, 255, 0.06);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+.patientCardOthers button { border-color: var(--member-color); }
+.patientCardOthers button::before { content: "→ "; color: var(--member-color); }
+.patientCardOthers button:hover,
+.patientCardReveal:hover { background: rgba(255, 255, 255, 0.14); }
+.patientCardReveal { width: 100%; border-radius: 8px; padding: 6px 9px; }
+.patientCardSolution { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.12); }
+.patientCardSolution p { margin: 2px 0 10px; }
+.patientCardSolution ul { margin: 4px 0 0; padding-left: 18px; }
+.patientCardSolution li { margin-bottom: 3px; }
+
 .calendarPanel {
     --cal-line: rgba(255, 255, 255, 0.09);
     --cal-muted: rgba(255, 255, 255, 0.5);
@@ -2517,6 +2604,9 @@ button:focus-visible {
 }
 @media (max-width: 700px) {
     .calendarButton { top: 236px; right: 10px; width: 40px; height: 40px; }
+    .patientButton { top: 282px; right: 10px; width: 40px; height: 40px; }
+    .patientCard { top: 10px; left: 10px; right: 58px; width: auto; max-height: 45vh; padding: 10px 12px; }
+    .patientCardHint, .patientCardOthers { display: none; }
     /* Above the character bar, which is raised on phones. */
     .calendarPanel { top: 10px; right: 10px; bottom: 10px; left: 10px; z-index: 10003; }
     .calAllDay .calGutter { font-size: 0; }

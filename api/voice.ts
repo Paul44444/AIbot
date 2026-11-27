@@ -9,6 +9,8 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 /** Voices the site may use; anything else would let others spend the quota on any voice. */
 const VOICES = new Set([
     "SOYHLrjzK2X1ezoPC6cr", // Harry: young and fierce (Jinx); the highest of the young premade voices
+    "EXAVITQu4vr4xnSDxMaL", // Sarah: young woman, soft and warm (Jenny as a patient)
+    "JBFqnCBsd6RMkjVDRZzb", // George: warm, mature British man (Smyth as a patient)
 ]);
 /** OpenAI voices, the same as the characters' realtime voices. */
 const OPENAI_VOICES = new Set(["cedar"]);

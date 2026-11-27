@@ -2,6 +2,7 @@ import { sendRealtimeText, startRealtimeVoiceSession } from "./realtimeVoice";
 import { describeFeed, loadFeed } from "./characterFeed";
 import { calendarContext } from "./calendar";
 import { memoryContext, remember } from "./memory";
+import { PATIENT_CASES, patientInstructions } from "../data/patients";
 import {
     CHARACTERS,
     START_CHARACTER,
@@ -119,8 +120,8 @@ async function* brainEvents(response: Response): AsyncGenerator<BrainEvent> {
  * Characters with an expressive voice reply in text, which /api/voice then performs.
  * With the sound off, everyone replies in text and no voice is generated.
  */
-function outputModalities(id: CharacterId, muted: boolean) {
-    return muted || CHARACTER_BY_ID[id].expressiveVoice ? ["text"] : ["audio"];
+function outputModalities(muted: boolean, expressive: boolean) {
+    return muted || expressive ? ["text"] : ["audio"];
 }
 
 
@@ -190,6 +191,8 @@ export class GroupConversation {
     private muted = false;
     /** Casual hangout or professional work session (see ConversationMode). */
     private mode: ConversationMode = "casual";
+    /** Patient mode: every character plays a patient for a medical student to interview (see patients.ts). */
+    private patients = false;
     /** Text models the user chose for characters (null: the realtime model answers itself). */
     private brainModels = new Map<CharacterId, string | null>();
     /** ISO 639-1 code the user's speech is transcribed in; null lets the transcriber guess. */
@@ -248,7 +251,31 @@ export class GroupConversation {
 
     /** Characters whose replies come from their own text model; their realtime session only listens. */
     private hasBrain(id: CharacterId) {
-        return Boolean(this.brainModel(id));
+        // Patients answer briefly and fast, straight from their realtime session.
+        return !this.patients && Boolean(this.brainModel(id));
+    }
+
+    /** The ElevenLabs voice that performs a character's replies, if any. */
+    private expressiveVoice(id: CharacterId) {
+        return this.patients ? PATIENT_CASES[id].voice : CHARACTER_BY_ID[id].expressiveVoice ?? null;
+    }
+
+    private outputs(id: CharacterId) {
+        return outputModalities(this.muted, Boolean(this.expressiveVoice(id)));
+    }
+
+    /** Patients are interviewed in English unless the student switches; the user's setting applies otherwise. */
+    private get transcriptionLanguage() {
+        return this.patients ? "en" : this.language;
+    }
+
+    /**
+     * Turns patient mode on or off. Meant for a fresh group before anyone connects:
+     * each patient is a new consultation, with no friends' chat in their history.
+     */
+    setPatientMode(on: boolean) {
+        this.patients = on;
+        for (const [id, session] of this.ready) this.sendInstructions(id, session);
     }
 
     /** Lets a text model write a character's replies, or (null) hands them back to the realtime model. */
@@ -358,7 +385,7 @@ export class GroupConversation {
         session.dc.send(JSON.stringify({
             type: "response.create",
             response: {
-                output_modalities: outputModalities(id, this.muted),
+                output_modalities: this.outputs(id),
                 instructions: interjectionInstructions(CHARACTER_BY_ID[id], this.settingsWithMemory(), teaser),
             },
         }));
@@ -378,7 +405,7 @@ export class GroupConversation {
             type: "conversation.item.create",
             item: { type: "function_call_output", call_id: callId, output: JSON.stringify(result) },
         }));
-        session.dc.send(JSON.stringify({ type: "response.create", response: { output_modalities: outputModalities(id, this.muted) } }));
+        session.dc.send(JSON.stringify({ type: "response.create", response: { output_modalities: this.outputs(id) } }));
     }
 
     setVideoContext(context: string | null, position: (() => string | null) | null) {
@@ -386,12 +413,12 @@ export class GroupConversation {
         this.videoContext = context;
         this.videoPosition = position;
         const line = context ?? "[Video] The user closed the video.";
-        for (const id of this.ready.keys()) this.inject(id, line);
+        if (!this.patients) for (const id of this.ready.keys()) this.inject(id, line);
     }
 
     /** Tells the addressed character where the user is in the video, right before their turn. */
     private tellVideoPosition(id: CharacterId) {
-        const position = this.videoContext ? this.videoPosition?.() : null;
+        const position = this.videoContext && !this.patients ? this.videoPosition?.() : null;
         if (position) this.inject(id, `[Video position] ${position}`);
     }
 
@@ -438,15 +465,18 @@ export class GroupConversation {
             this.ready.set(id, session);
             session.audioEl.muted = this.muted;
             this.sendInstructions(id, session);
-            // Late joiners catch up on what was said before they connected.
-            for (const line of this.lines.slice(-HISTORY_FOR_LATE_JOINERS)) {
-                if (line.speaker !== character.name) this.inject(id, `[${line.speaker}]: ${line.text}`);
+            // A patient starts their own consultation with nothing else in mind.
+            if (!this.patients) {
+                // Late joiners catch up on what was said before they connected.
+                for (const line of this.lines.slice(-HISTORY_FOR_LATE_JOINERS)) {
+                    if (line.speaker !== character.name) this.inject(id, `[${line.speaker}]: ${line.text}`);
+                }
+                if (this.videoContext) this.inject(id, this.videoContext);
+                // Something real and recent to talk about; it arrives a moment later, without delaying the call.
+                void loadFeed(id).then((feed) => {
+                    if (!this.signal.aborted && feed.videos.length) this.inject(id, describeFeed(feed));
+                }).catch(() => {});
             }
-            if (this.videoContext) this.inject(id, this.videoContext);
-            // Something real and recent to talk about; it arrives a moment later, without delaying the call.
-            void loadFeed(id).then((feed) => {
-                if (!this.signal.aborted && feed.videos.length) this.inject(id, describeFeed(feed));
-            }).catch(() => {});
             // Not attachMicrophone(): it waits for this very connection and would never resolve.
             if (id === this.addressee) await this.routeMicrophone();
             return session;
@@ -485,7 +515,7 @@ export class GroupConversation {
                     instructions: "You only listen. Never reply.",
                     audio: {
                         input: {
-                            transcription: { model: "gpt-4o-mini-transcribe", ...(this.language ? { language: this.language } : {}) },
+                            transcription: { model: "gpt-4o-mini-transcribe", ...(this.transcriptionLanguage ? { language: this.transcriptionLanguage } : {}) },
                             turn_detection: { type: "server_vad", create_response: false, interrupt_response: false },
                         },
                     },
@@ -498,19 +528,19 @@ export class GroupConversation {
             type: "session.update",
             session: {
                 type: "realtime",
-                output_modalities: outputModalities(id, this.muted),
-                instructions: characterInstructions(CHARACTER_BY_ID[id], this.settingsWithMemory()),
+                output_modalities: this.outputs(id),
+                instructions: this.patients ? patientInstructions(CHARACTER_BY_ID[id]) : characterInstructions(CHARACTER_BY_ID[id], this.settingsWithMemory()),
                 // Real time-stretching; asking for a slower pace in the instructions barely works.
                 audio: {
                     // Guessing the language per utterance mistakes short or quiet German for Japanese or Swedish.
                     input: {
-                        transcription: { model: "gpt-4o-mini-transcribe", ...(this.language ? { language: this.language } : {}) },
+                        transcription: { model: "gpt-4o-mini-transcribe", ...(this.transcriptionLanguage ? { language: this.transcriptionLanguage } : {}) },
                         // Answers by itself again, in case a text model wrote this character's replies before.
                         turn_detection: { type: "server_vad", create_response: true, interrupt_response: true },
                     },
                     output: { speed: this.speed },
                 },
-                tools: [DRAW_DIAGRAM_TOOL],
+                tools: this.patients ? [] : [DRAW_DIAGRAM_TOOL],
                 tool_choice: "auto",
             },
         }));
@@ -528,13 +558,16 @@ export class GroupConversation {
     }
 
     private injectIntoOthers(exceptId: CharacterId, text: string) {
+        // Patients are in separate consultations and don't hear each other.
+        if (this.patients) return;
         for (const id of this.ready.keys()) if (id !== exceptId) this.inject(id, text);
     }
 
     /** Adds to the conversation and to the long-term memory. */
     private addLine(speaker: string, text: string) {
         this.lines.push({ speaker, text });
-        remember(speaker, text);
+        // A role-play consultation says nothing about the user's own life.
+        if (!this.patients) remember(speaker, text);
     }
 
     /** The user's settings plus what the group remembers from earlier conversations and the user's calendar. */
@@ -558,7 +591,7 @@ export class GroupConversation {
             if (!open) return;
             // The text of a reply finishes before its audio; cancel only what is still running.
             if (this.replies.has(id)) session!.dc.send(JSON.stringify({ type: "response.cancel" }));
-            if (this.speaking === id && !CHARACTER_BY_ID[id].expressiveVoice) {
+            if (this.speaking === id && !this.expressiveVoice(id)) {
                 session!.dc.send(JSON.stringify({ type: "output_audio_buffer.clear" }));
             }
         }
@@ -602,7 +635,8 @@ export class GroupConversation {
     }
 
     private handleUserTranscript(heardBy: CharacterId, text: string) {
-        const target = addressedCharacter(text) ?? heardBy;
+        // A patient's name in a consultation does not call another patient.
+        const target = (this.patients ? null : addressedCharacter(text)) ?? heardBy;
         this.recordUserLine(text, target, heardBy);
         this.callbacks.onUserText(text);
         if (target === heardBy) {
@@ -619,7 +653,7 @@ export class GroupConversation {
         }
         void this.connect(target).then((session) => {
             if (this.signal.aborted) return;
-            session.dc.send(JSON.stringify({ type: "response.create", response: { output_modalities: outputModalities(target, this.muted) } }));
+            session.dc.send(JSON.stringify({ type: "response.create", response: { output_modalities: this.outputs(target) } }));
         });
     }
 
@@ -652,7 +686,7 @@ export class GroupConversation {
         this.replies.delete(id);
         if (!text) return;
         // A character with their own model is already being performed while writing.
-        if (CHARACTER_BY_ID[id].expressiveVoice && !this.hasBrain(id) && !this.muted) this.perform(id, performance);
+        if (this.expressiveVoice(id) && !this.hasBrain(id) && !this.muted) this.perform(id, performance);
         const name = CHARACTER_BY_ID[id].name;
         this.addLine(name, text);
         this.injectIntoOthers(id, `[${name}]: ${speakable(text)}`);
@@ -721,7 +755,7 @@ export class GroupConversation {
 
     private voiceUrl(id: CharacterId, text: string) {
         const character = CHARACTER_BY_ID[id];
-        return `/api/voice?${new URLSearchParams({ voice: character.expressiveVoice ?? character.textVoice!, text, speed: String(this.speed) })}`;
+        return `/api/voice?${new URLSearchParams({ voice: this.expressiveVoice(id) ?? character.textVoice!, text, speed: String(this.speed) })}`;
     }
 
     /**
@@ -730,7 +764,8 @@ export class GroupConversation {
      * and a real answer must not lose its turn to a preload.
      */
     private preloadSounds() {
-        if (this.preloadingSounds || this.muted) return;
+        // Patients answer without bridging sounds.
+        if (this.preloadingSounds || this.muted || this.patients) return;
         const urls = CHARACTERS
             .filter((character) => character.brainModel)
             .flatMap((character) => this.soundsFor(character.id).map((sound) => this.voiceUrl(character.id, sound.text)))
@@ -1018,7 +1053,7 @@ export class GroupConversation {
         const feed = await loadFeed(id).catch(() => null);
         if (feed?.videos.length) input.push({ role: "developer", content: describeFeed(feed) });
         if (this.videoContext) input.push({ role: "developer", content: this.videoContext });
-        const position = this.videoContext ? this.videoPosition?.() : null;
+        const position = this.videoContext && !this.patients ? this.videoPosition?.() : null;
         if (position) input.push({ role: "developer", content: `[Video position] ${position}` });
 
         // A call without its result (the user moved on before the sketch was done) would be rejected.
@@ -1038,6 +1073,8 @@ export class GroupConversation {
 
     private async askDirector(lastSpeakerId: CharacterId) {
         const run = ++this.directorRun;
+        // Other patients don't chime in on a consultation.
+        if (this.patients) return;
         try {
             const response = await fetch("/api/director", {
                 method: "POST",

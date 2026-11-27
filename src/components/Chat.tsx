@@ -7,7 +7,8 @@ import type { Message } from "../types/chat";
 import { useEffect, useRef } from 'react'
 
 import { loadStoredConversations, upsertConversationNode } from "../data/conversationStorage";
-import { Mic, MicOff, Lock, Check, LoaderCircle, Pause, Play, PencilLine, CalendarDays, Maximize2, Minimize2, Volume2, VolumeX } from "lucide-react";
+import { Mic, MicOff, Lock, Check, LoaderCircle, Pause, Play, PencilLine, CalendarDays, Maximize2, Minimize2, Volume2, VolumeX, Stethoscope } from "lucide-react";
+import { PATIENT_CASES } from "../data/patients";
 import { useTopicProgress } from "../hooks/useTopicProgress";
 import {
     FREE_CONVERSATION_TOPIC_ID,
@@ -149,6 +150,7 @@ function LinkedText({ text, onWord, onWordClick }: {
 }
 
 const TRANSCRIPT_EXPANDED_KEY = "transcriptExpanded";
+const PATIENT_MODE_KEY = "patientMode";
 const SOUND_OFF_KEY = "soundOff";
 const SMYTH_MODEL_KEY = "smythModel";
 
@@ -565,6 +567,42 @@ function LanguagePanel({
  * The group at a glance: tap someone to talk to them. When a friend raises
  * their hand, their teaser appears and the user decides whether they speak.
  */
+/** Patient mode: who the student is seeing, and (after the talk) what they should have found out. */
+function PatientCard({ id, revealed, onReveal, onAddress }: {
+    id: CharacterId;
+    revealed: boolean;
+    onReveal: () => void;
+    onAddress: (id: CharacterId) => void;
+}) {
+    const patient = PATIENT_CASES[id];
+    return (
+        <section className="patientCard" style={{ "--member-color": CHARACTER_BY_ID[id].color } as CSSProperties} aria-label="Current patient">
+            <small className="patientCardMode">Patient mode · history-taking practice</small>
+            <h2>{patient.fullName}, {patient.age}</h2>
+            <p className="patientCardReason">{patient.reason}</p>
+            <p className="patientCardHint">Take their history: they only tell you what you ask. Speak or type in English.</p>
+            <div className="patientCardOthers">
+                {CHARACTERS.filter((character) => character.id !== id).map((character) => (
+                    <button key={character.id} type="button" onClick={() => onAddress(character.id)} style={{ "--member-color": character.color } as CSSProperties}>
+                        {PATIENT_CASES[character.id].fullName}
+                    </button>
+                ))}
+            </div>
+            <button type="button" className="patientCardReveal" onClick={onReveal} aria-expanded={revealed}>
+                {revealed ? "Hide case" : "Reveal case (after the talk)"}
+            </button>
+            {revealed && (
+                <div className="patientCardSolution">
+                    <strong>Diagnosis</strong>
+                    <p>{patient.solution.diagnosis}</p>
+                    <strong>A good history covers</strong>
+                    <ul>{patient.solution.keyPoints.map((point) => <li key={point}>{point}</li>)}</ul>
+                </div>
+            )}
+        </section>
+    );
+}
+
 function GroupBar({
     addressee,
     speakingId,
@@ -732,7 +770,8 @@ function ChatInput({
         onDismissMicrophoneError: () => void;
         toggleMicrophone: () => void | Promise<void>;
         onFocusInput: () => void;
-        smythModel: string;
+        /** Null hides the picker (patients always answer with the realtime model). */
+        smythModel: string | null;
         onSmythModel: (model: string) => void;
     }) {
         const [microphonePromptDismissed, setMicrophonePromptDismissed] = useState(false);
@@ -740,12 +779,12 @@ function ChatInput({
         return (
             <div className="uiOverlay">
                 <div className="chatInputRow">
-                    <label className="modelPicker" title={BRAIN_MODEL_OPTIONS.find((option) => option.id === smythModel)?.hint}>
+                    {smythModel !== null && <label className="modelPicker" title={BRAIN_MODEL_OPTIONS.find((option) => option.id === smythModel)?.hint}>
                         <span>Smyth</span>
                         <select value={smythModel} onChange={(event) => onSmythModel(event.target.value)} aria-label="AI model Smyth thinks with">
                             {BRAIN_MODEL_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
                         </select>
-                    </label>
+                    </label>}
                     <input
                         value={input}
                         onFocus={onFocusInput}
@@ -1047,6 +1086,30 @@ export default function Chat({
         }
     });
     const soundOffRef = useRef(soundOff);
+    // Patient mode: the characters play patients for a medical student to interview.
+    const [patientMode, setPatientMode] = useState(() => {
+        try {
+            return localStorage.getItem(PATIENT_MODE_KEY) === "true";
+        } catch {
+            return false;
+        }
+    });
+    const patientModeRef = useRef(patientMode);
+    // Whose solution the student has opened; it closes when they see another patient.
+    const [revealedCase, setRevealedCase] = useState<CharacterId | null>(null);
+    const togglePatientMode = () => {
+        const next = !patientModeRef.current;
+        // Every switch starts a fresh consultation (or a fresh chat among friends).
+        resetConversation();
+        patientModeRef.current = next;
+        setPatientMode(next);
+        setRevealedCase(null);
+        try {
+            localStorage.setItem(PATIENT_MODE_KEY, String(next));
+        } catch {
+            // Only for this visit then.
+        }
+    };
     // The model Smyth thinks with; the realtime model answers by itself, any other writes his replies.
     const [smythModel, setSmythModel] = useState<string>(() => {
         try {
@@ -1100,7 +1163,7 @@ export default function Chat({
         updateRealtimeSession();
     };
     /** The sentence limit applies to casual conversation only. */
-    const sentenceLimit = () => conversationModeRef.current === "professional" ? 0 : sentenceCountRef.current;
+    const sentenceLimit = () => conversationModeRef.current === "professional" || patientModeRef.current ? 0 : sentenceCountRef.current;
     const changeSmythModel = (model: string) => {
         smythModelRef.current = model;
         setSmythModel(model);
@@ -1315,6 +1378,7 @@ export default function Chat({
         // Before the settings, which start preloading sounds a muted group does not need.
         group.setMuted(soundOffRef.current);
         group.setMode(conversationModeRef.current);
+        group.setPatientMode(patientModeRef.current);
         group.setBrainModel("smyth", smythModelRef.current === REALTIME_MODEL ? null : smythModelRef.current);
         group.updateSettings(settingsRef.current, speechRateRef.current, transcriptionLanguage(speechLanguageRef.current));
         if (videoRef.current) group.setVideoContext(videoContext(videoRef.current), videoPosition);
@@ -1617,47 +1681,46 @@ ${topicGuidance}
         };
     }, []);
 
-    useImperativeHandle(ref, () => ({
-        startNewConversation() {
-            const currentMessages = [...messages, ...realtimeMessages].filter(
-                (message): message is ChatMessage =>
-                    (message.role === "user" || message.role === "assistant")
-                    && message.content.trim() !== "..."
-            );
-            if (currentMessages.length) {
-                upsertConversationNode(conversationNodeIdRef.current, currentMessages);
-            }
-            // Stop old callbacks before clearing UI and assigning a fresh history ID.
-            conversationAbortRef.current.abort();
-            conversationAbortRef.current = new AbortController();
-            cancelSpeech();
-            groupRef.current?.dispose();
-            groupRef.current = null;
-            replyIdsRef.current.clear();
-            setAddressee(START_CHARACTER);
-            setSpeakingId(null);
-            setHands([]);
-            setDiagram(null);
-            setMicrophoneEnabled(false);
-            setMicrophoneConnecting(false);
-            setRealtimeSpeaking(false);
-            setSpeechPreparing(false);
-            setCurrentExpression("relaxed");
-            gapWordsRequestRef.current += 1;
-            lastGapTranscriptRef.current = "";
-            setGapWords([]);
-            setGapWordsLoading(false);
-            setGapWordsError(false);
-            setMessages([]);
-            setRealtimeMessages([]);
-            setInput("");
-            conversationNodeIdRef.current = crypto.randomUUID();
-            lastSavedMessageCountRef.current = 0;
-            lastMessageCountRef.current = 0;
-            setConversationVersion((version) => version + 1);
-            requestAnimationFrame(() => document.querySelector<HTMLInputElement>(".uiOverlay input")?.focus());
-        },
-    }));
+    const resetConversation = () => {
+        const currentMessages = [...messages, ...realtimeMessages].filter(
+            (message): message is ChatMessage =>
+                (message.role === "user" || message.role === "assistant")
+                && message.content.trim() !== "..."
+        );
+        if (currentMessages.length) {
+            upsertConversationNode(conversationNodeIdRef.current, currentMessages);
+        }
+        // Stop old callbacks before clearing UI and assigning a fresh history ID.
+        conversationAbortRef.current.abort();
+        conversationAbortRef.current = new AbortController();
+        cancelSpeech();
+        groupRef.current?.dispose();
+        groupRef.current = null;
+        replyIdsRef.current.clear();
+        setAddressee(START_CHARACTER);
+        setSpeakingId(null);
+        setHands([]);
+        setDiagram(null);
+        setMicrophoneEnabled(false);
+        setMicrophoneConnecting(false);
+        setRealtimeSpeaking(false);
+        setSpeechPreparing(false);
+        setCurrentExpression("relaxed");
+        gapWordsRequestRef.current += 1;
+        lastGapTranscriptRef.current = "";
+        setGapWords([]);
+        setGapWordsLoading(false);
+        setGapWordsError(false);
+        setMessages([]);
+        setRealtimeMessages([]);
+        setInput("");
+        conversationNodeIdRef.current = crypto.randomUUID();
+        lastSavedMessageCountRef.current = 0;
+        lastMessageCountRef.current = 0;
+        setConversationVersion((version) => version + 1);
+        requestAnimationFrame(() => document.querySelector<HTMLInputElement>(".uiOverlay input")?.focus());
+    };
+    useImperativeHandle(ref, () => ({ startNewConversation: resetConversation }));
 
     const sendTypedMessage = async () => {
             const signal = conversationAbortRef.current.signal;
@@ -1904,6 +1967,26 @@ ${topicGuidance}
                 <CalendarDays size={20} aria-hidden="true" />
             </button>
 
+            <button
+                className={`patientButton${patientMode ? " isActive" : ""}`}
+                type="button"
+                onClick={togglePatientMode}
+                aria-pressed={patientMode}
+                aria-label="Patient mode"
+                data-tooltip={patientMode ? "Leave patient mode" : "Patient mode: practise taking a history"}
+            >
+                <Stethoscope size={20} aria-hidden="true" />
+            </button>
+
+            {patientMode && (
+                <PatientCard
+                    id={addressee}
+                    revealed={revealedCase === addressee}
+                    onReveal={() => setRevealedCase((revealed) => revealed === addressee ? null : addressee)}
+                    onAddress={addressCharacter}
+                />
+            )}
+
             {calendarOpen && (
                 <Suspense fallback={null}>
                     <LazyCalendarPanel onClose={closeCalendar} />
@@ -2053,7 +2136,7 @@ ${topicGuidance}
                     warmUpBrain();
                     void ensureGroup().connect(addressee).catch(() => {});
                 }}
-                smythModel={smythModel}
+                smythModel={patientMode ? null : smythModel}
                 onSmythModel={changeSmythModel}
             />
 
