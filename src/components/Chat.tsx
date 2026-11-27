@@ -1879,6 +1879,7 @@ ${topicGuidance}
                             setFocusPc(null);
                             setOutside(value);
                         }}
+                        practice={patientMode}
                     />
                 </Suspense>
             )}

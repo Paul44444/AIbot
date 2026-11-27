@@ -12,6 +12,7 @@ import {
 import CozyRoom, { BlobShadow, JENNY_LIGHTS } from "./CozyRoom";
 import JinxRoom, { JINX_LIGHTS } from "./JinxRoom";
 import SmythRoom, { SMYTH_LIGHTS } from "./SmythRoom";
+import PracticeRoom, { CHAIR_YAW, PracticeSign } from "./PracticeRoom";
 import {
     DOORWAYS,
     DOORWAY_HEIGHT,
@@ -50,16 +51,24 @@ type SceneViewProps = {
     /** Walking in the forest outside instead of being in a room. */
     outside: boolean;
     onOutsideChange: (outside: boolean) => void;
+    /** Patient mode: the rooms are exam rooms of a medical practice and the patients sit. */
+    practice: boolean;
 };
 
 const TOWARD_CAMERA = new THREE.Vector3(1, 0, 1).normalize();
 const SCREEN_RIGHT = new THREE.Vector3(1, 0, -1).normalize();
 
+// The usual rooms; patient mode shows exam rooms in their place (PracticeRoom), and these come back with it off.
 const ROOMS: Record<CharacterId, () => ReactNode> = {
     jenny: () => <CozyRoom />,
     jinx: () => <JinxRoom />,
     smyth: () => <SmythRoom />,
 };
+
+/** Clinic light in the practice; changing a light's colour needs no shader recompile. */
+const PRACTICE_LIGHT = "#f3f7ff";
+/** How far behind the chair's centre a seated patient's hips are. */
+const SEAT_BACK = 0.12;
 
 // Rooms and residents load one after another, the starting room first, so the work
 // never piles up on the main thread and the starting room is ready soonest.
@@ -72,7 +81,7 @@ function stepIndex(kind: "room" | "avatar", id: CharacterId) {
     return LOAD_STEPS.findIndex((step) => step.kind === kind && step.id === id);
 }
 
-export default function SceneView({ speakingId, thinkingId, addresseeId, expression, onProgress, onNavigate, focusPcId, onFocusPc, onOpenYouTube, outside, onOutsideChange }: SceneViewProps) {
+export default function SceneView({ speakingId, thinkingId, addresseeId, expression, onProgress, onNavigate, focusPcId, onFocusPc, onOpenYouTube, outside, onOutsideChange, practice }: SceneViewProps) {
     const [settledKey, setSettledKey] = useState<string | null>(null);
     const [step, setStep] = useState(0);
     const finishStep = useCallback((index: number) => {
@@ -145,7 +154,7 @@ export default function SceneView({ speakingId, thinkingId, addresseeId, express
                     <pointLight
                         key={index}
                         position={light.position as unknown as [number, number, number]}
-                        color={light.color}
+                        color={practice ? PRACTICE_LIGHT : light.color}
                         intensity={light.intensity}
                         distance={light.distance}
                         decay={light.decay}
@@ -157,11 +166,11 @@ export default function SceneView({ speakingId, thinkingId, addresseeId, express
                     if (loadStep.kind === "room") {
                         return (
                             <DeferredRoom
-                                key={`room-${loadStep.id}`}
+                                key={`room-${loadStep.id}-${practice ? "practice" : "home"}`}
                                 id={loadStep.id}
                                 onReady={() => finishStep(index)}
                             >
-                                {ROOMS[loadStep.id]()}
+                                {practice ? <PracticeRoom id={loadStep.id} /> : ROOMS[loadStep.id]()}
                             </DeferredRoom>
                         );
                     }
@@ -175,6 +184,7 @@ export default function SceneView({ speakingId, thinkingId, addresseeId, express
                             expression={speakingId === loadStep.id ? expression : "relaxed"}
                             onReady={() => finishStep(index)}
                             onSelect={onNavigate}
+                            seated={practice}
                         />
                     );
                 })}
@@ -183,7 +193,8 @@ export default function SceneView({ speakingId, thinkingId, addresseeId, express
                     <DoorwayHotspot key={doorway.x} doorway={doorway} onNavigate={onNavigate} />
                 ))}
                 <OrbitControls makeDefault enablePan enableZoom enableRotate />
-                {ROOM_ORDER.map((id) => (
+                {/* The exam rooms have no PCs with videos. */}
+                {!practice && ROOM_ORDER.map((id) => (
                     <PcScreenSpot
                         key={id}
                         id={id}
@@ -197,8 +208,9 @@ export default function SceneView({ speakingId, thinkingId, addresseeId, express
                 <AdaptiveResolution onChange={setDpr} />
                 <FirstDraws />
                 <FrontDoor open={outside} onOpen={() => onOutsideChange(true)} />
+                {practice && <PracticeSign />}
                 {outdoorsMounted && <Outdoors active={settledKey === "outside"} onReachDoor={() => onOutsideChange(false)} />}
-                <CameraRig roomId={addresseeId} focusPcId={focusPcId} outside={outside} onSettled={setSettledKey} />
+                <CameraRig roomId={addresseeId} focusPcId={practice ? null : focusPcId} outside={outside} seated={practice} onSettled={setSettledKey} />
             </Canvas>
         </div>
     );
@@ -289,10 +301,11 @@ function VisibilityControl({ outside }: { outside: boolean }) {
 const easeInOut = (t: number) => t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
 
 /** The camera's resting view of a character, framed for the current screen. */
-function viewOf(id: CharacterId, width: number, height: number) {
+function viewOf(id: CharacterId, width: number, height: number, seated = false) {
     const aspect = width / height;
     const [x, z] = SEATS[id];
-    const target = new THREE.Vector3(x, FLOOR_Y + 1.35, z);
+    // A seated patient's face is lower.
+    const target = new THREE.Vector3(x, FLOOR_Y + (seated ? 1.05 : 1.35), z);
     // On wide screens the transcript covers the left quarter; on phones the top half.
     if (width >= 900) target.addScaledVector(SCREEN_RIGHT, -0.36);
     if (aspect < 1) target.y += 0.6;
@@ -382,10 +395,11 @@ type Flight = { curve: THREE.CatmullRomCurve3; from: THREE.Vector3; to: THREE.Ve
  * focused. Moving to another room flies through the doorways in between;
  * afterwards the user can orbit freely inside the room (not at a PC).
  */
-function CameraRig({ roomId, focusPcId, outside, onSettled }: {
+function CameraRig({ roomId, focusPcId, outside, seated, onSettled }: {
     roomId: CharacterId;
     focusPcId: CharacterId | null;
     outside: boolean;
+    seated: boolean;
     /** Called with "room:<id>" or "pc:<id>" once the camera has arrived. */
     onSettled: (key: string) => void;
 }) {
@@ -394,12 +408,12 @@ function CameraRig({ roomId, focusPcId, outside, onSettled }: {
     const shown = useRef<string | null>(null);
     const lookTarget = useRef(new THREE.Vector3());
     const destination = focusPcId ?? roomId;
-    const key = outside ? "outside" : focusPcId ? `pc:${focusPcId}` : `room:${roomId}`;
+    const key = outside ? "outside" : focusPcId ? `pc:${focusPcId}` : `room:${roomId}${seated ? ":seated" : ""}`;
 
     useEffect(() => {
         const perspective = camera as THREE.PerspectiveCamera;
         const view = outside ? outsideView(size.width, size.height)
-            : focusPcId ? pcViewOf(focusPcId, size.width, size.height) : viewOf(roomId, size.width, size.height);
+            : focusPcId ? pcViewOf(focusPcId, size.width, size.height) : viewOf(roomId, size.width, size.height, seated);
         perspective.fov = view.fov;
         perspective.updateProjectionMatrix();
         const orbit = controls as OrbitControlsImpl | null;
@@ -702,6 +716,22 @@ function FirstDraws() {
     return null;
 }
 
+/**
+ * A sitting pose on top of the idle animation: thighs forward, shins down, arms
+ * resting on the thighs. VRM 0.x models face the other way, so their rotations about
+ * x and z are mirrored.
+ */
+function sit(vrm: VRM) {
+    const mirror = vrm.meta.metaVersion === "0" ? -1 : 1;
+    const bone = (name: Parameters<typeof vrm.humanoid.getNormalizedBoneNode>[0]) => vrm.humanoid.getNormalizedBoneNode(name);
+    for (const side of ["left", "right"] as const) {
+        const outward = side === "left" ? 1 : -1;
+        bone(`${side}UpperLeg`)?.rotation.set(-1.45 * mirror, 0, 0.06 * outward * mirror);
+        bone(`${side}LowerLeg`)?.rotation.set(1.4 * mirror, 0, 0);
+        bone(`${side}Foot`)?.rotation.set(0, 0, 0);
+    }
+}
+
 /** Builds a room as a transition, so React yields to typing while creating it. */
 function DeferredRoom({ id, onReady, children }: { id: CharacterId; onReady: () => void; children: ReactNode }) {
     const [show, setShow] = useState(false);
@@ -772,6 +802,7 @@ function Character({
     expression,
     onReady,
     onSelect,
+    seated,
 }: {
     character: GroupMember;
     isSpeaking: boolean;
@@ -780,6 +811,8 @@ function Character({
     expression: string;
     onReady: () => void;
     onSelect: (id: CharacterId) => void;
+    /** Sits on the patient chair (patient mode) instead of standing. */
+    seated: boolean;
 }) {
     const group = useRef<THREE.Group>(null);
     const outer = useRef<THREE.Group>(null);
@@ -787,8 +820,16 @@ function Character({
     const [hovered, setHovered] = useState(false);
     const mixerRef = useRef<THREE.AnimationMixer | null>(null);
     const { gl, camera, scene } = useThree();
-    const position = useMemo(() => new THREE.Vector3(SEATS[character.id][0], FLOOR_Y, SEATS[character.id][1]), [character.id]);
     const scale = character.id === "jenny" ? 1.12 : 1;
+    /** Height of the hips above the feet when standing, measured once loaded. */
+    const hipsHeight = useRef(0.95 * scale);
+    const position = useMemo(() => {
+        const [x, z] = SEATS[character.id];
+        // Seated, the hips rest towards the back of the chair, which faces CHAIR_YAW.
+        return seated
+            ? new THREE.Vector3(x - Math.sin(CHAIR_YAW) * SEAT_BACK, FLOOR_Y, z - Math.cos(CHAIR_YAW) * SEAT_BACK)
+            : new THREE.Vector3(x, FLOOR_Y, z);
+    }, [character.id, seated]);
     const onReadyRef = useRef(onReady);
     onReadyRef.current = onReady;
 
@@ -838,6 +879,7 @@ function Character({
                 const hipsPosition = hips.getWorldPosition(new THREE.Vector3());
                 loadedVrm.scene.position.x -= hipsPosition.x;
                 loadedVrm.scene.position.z -= hipsPosition.z;
+                hipsHeight.current = hipsPosition.y * scale;
             }
             try {
                 await prepareForRender(gl, loadedVrm.scene, camera, scene);
@@ -864,7 +906,7 @@ function Character({
     }, [character]);
 
     const lookTarget = useRef(new THREE.Vector3());
-    const restingView = useMemo(() => viewOf(character.id, 1600, 900).position, [character.id]);
+    const restingView = useMemo(() => viewOf(character.id, 1600, 900, seated).position, [character.id, seated]);
     /** 0–1, eases in and out: how much they look like they are thinking. */
     const thought = useRef(0);
     const settled = useRef(false);
@@ -884,7 +926,8 @@ function Character({
         // Face the user when they are in this room; otherwise face the usual viewpoint.
         const userHere = roomAt(camera.position.x, camera.position.z) === character.id;
         const facing = userHere ? camera.position : restingView;
-        let yaw = Math.atan2(facing.x - position.x, facing.z - position.z);
+        // Seated, they face the way the chair does.
+        let yaw = seated ? CHAIR_YAW : Math.atan2(facing.x - position.x, facing.z - position.z);
         // VRM 0.x models face -Z, VRM 1.0 models face +Z.
         if (vrm.meta.metaVersion === "0") yaw += Math.PI;
         if (!settled.current) {
@@ -926,6 +969,9 @@ function Character({
         if (pondering > 0.01) vrm.expressionManager?.setValue("angry", Math.max(vrm.expressionManager.getValue("angry") ?? 0, 0.22 * pondering));
 
         mixerRef.current?.update(delta);
+        if (seated) sit(vrm);
+        // Seated, the hips drop onto the seat (the chair's cushion top plus a little).
+        if (outer.current) outer.current.position.y = FLOOR_Y - (seated ? Math.max(0, hipsHeight.current - 0.58) : 0);
         // On top of the idle animation: the head tilts and lifts a little while thinking.
         const head = pondering > 0.01 ? vrm.humanoid.getNormalizedBoneNode("head") : null;
         if (head) {
