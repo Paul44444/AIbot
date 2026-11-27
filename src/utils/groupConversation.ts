@@ -4,6 +4,7 @@ import { calendarContext } from "./calendar";
 import { memoryContext, remember } from "./memory";
 import {
     CHARACTERS,
+    START_CHARACTER,
     CHARACTER_BY_ID,
     DRAW_DIAGRAM_TOOL,
     PROFESSIONAL_RULES,
@@ -181,7 +182,7 @@ export class GroupConversation {
     private sessions = new Map<CharacterId, Promise<Session>>();
     private ready = new Map<CharacterId, Session>();
     private microphone: MediaStream | null = null;
-    private addressee: CharacterId = "jenny";
+    private addressee: CharacterId = START_CHARACTER;
     private settings = "";
     /** Playback speed of every voice (the API allows 0.25–1.5; 1 is normal). */
     private speed = 1;

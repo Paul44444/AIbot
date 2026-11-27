@@ -32,7 +32,7 @@ import MonitorFeed from "./MonitorFeed";
 import { sceneVisibility } from "./sceneVisibility";
 import Outdoors, { OUTSIDE_START, SKY_HORIZON } from "./outdoor/Outdoors";
 import { heightAt } from "./outdoor/world";
-import { CHARACTER_BY_ID, type Character as GroupMember, type CharacterId } from "../data/characters";
+import { CHARACTER_BY_ID, START_CHARACTER, type Character as GroupMember, type CharacterId } from "../data/characters";
 
 type SceneViewProps = {
     speakingId: CharacterId | null;
@@ -61,11 +61,11 @@ const ROOMS: Record<CharacterId, () => ReactNode> = {
     smyth: () => <SmythRoom />,
 };
 
-// Rooms and residents load one after another, Jenny's first, so the work never
-// piles up on the main thread and the starting room is ready soonest.
+// Rooms and residents load one after another, the starting room first, so the work
+// never piles up on the main thread and the starting room is ready soonest.
 const LOAD_STEPS = ROOM_ORDER
     .slice()
-    .sort((a, b) => (a === "jenny" ? -1 : b === "jenny" ? 1 : 0))
+    .sort((a, b) => (a === START_CHARACTER ? -1 : b === START_CHARACTER ? 1 : 0))
     .flatMap((id) => [{ kind: "room" as const, id }, { kind: "avatar" as const, id }]);
 
 function stepIndex(kind: "room" | "avatar", id: CharacterId) {
@@ -78,7 +78,7 @@ export default function SceneView({ speakingId, thinkingId, addresseeId, express
     const finishStep = useCallback((index: number) => {
         setStep((current) => current === index ? current + 1 : current);
     }, []);
-    const roomReady = step > stepIndex("room", "jenny");
+    const roomReady = step > stepIndex("room", START_CHARACTER);
     // The forest starts with a few tiles in front of the door once everyone has loaded
     // (or right away when someone goes outside earlier), and grows when walked in.
     const [outdoorsMounted, setOutdoorsMounted] = useState(false);
@@ -715,7 +715,7 @@ function DeferredRoom({ id, onReady, children }: { id: CharacterId; onReady: () 
         <>
             <group ref={room}>{children}</group>
             {/* The first room also prepares what stands outside any room (door, hotspots). */}
-            <RoomWarmUp room={room} wholeScene={id === "jenny"} onReady={onReady} />
+            <RoomWarmUp room={room} wholeScene={id === START_CHARACTER} onReady={onReady} />
         </>
     );
 }

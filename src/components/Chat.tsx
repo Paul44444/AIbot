@@ -46,7 +46,7 @@ import type { DiagramSpec } from "../types/diagram";
 import type { DiagramState, SketchEntry, SketchLibrary } from "./DiagramPanel";
 import type { YouTubeHandle, YouTubeRequest } from "./YouTubePanel";
 import { formatTime, type VideoDetails } from "../types/youtube";
-import { BRAIN_MODEL_OPTIONS, CHARACTERS, CHARACTER_BY_ID, REALTIME_MODEL, characterBySpeaker, type CharacterId, type ConversationMode } from "../data/characters";
+import { BRAIN_MODEL_OPTIONS, CHARACTERS, CHARACTER_BY_ID, REALTIME_MODEL, START_CHARACTER, characterBySpeaker, type CharacterId, type ConversationMode } from "../data/characters";
 
 //import ChatTranscript from "./ChatTranscript";
 
@@ -1032,7 +1032,7 @@ export default function Chat({
     const [microphoneConnecting, setMicrophoneConnecting] = useState(false);
     const [microphoneError, setMicrophoneError] = useState<string | null>(null);
     // Who the microphone and typed messages go to; others join when given the floor.
-    const [addressee, setAddressee] = useState<CharacterId>("jenny");
+    const [addressee, setAddressee] = useState<CharacterId>(START_CHARACTER);
     const [speakingId, setSpeakingId] = useState<CharacterId | null>(null);
     const [thinkingId, setThinkingId] = useState<CharacterId | null>(null);
     const [hands, setHands] = useState<RaisedHand[]>([]);
@@ -1634,7 +1634,7 @@ ${topicGuidance}
             groupRef.current?.dispose();
             groupRef.current = null;
             replyIdsRef.current.clear();
-            setAddressee("jenny");
+            setAddressee(START_CHARACTER);
             setSpeakingId(null);
             setHands([]);
             setDiagram(null);
