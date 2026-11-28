@@ -1,4 +1,4 @@
-import { StrictMode } from 'react'
+import { StrictMode, Suspense, lazy } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
@@ -15,8 +15,12 @@ posthog.init(
     }
 );
 
+// ?eval opens the validation page for patient mode instead of the app.
+const EvalPage = lazy(() => import('./components/EvalPage.tsx'))
+const evalPage = new URLSearchParams(location.search).has('eval')
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    {evalPage ? <Suspense fallback={null}><EvalPage /></Suspense> : <App />}
   </StrictMode>,
 )

@@ -211,24 +211,30 @@ export const DATASET_CREDIT = "Case from Fareez et al., Scientific Data 2022 (CC
 
 let caseIndex: Promise<DatasetCaseEntry[]> | null = null;
 
-/** A random recorded case this character can play, other than the one they play now. */
-export async function randomDatasetCase(id: CharacterId, currentId?: string): Promise<DatasetCase> {
+/** All recorded cases (loaded once). */
+export async function loadCaseIndex(): Promise<DatasetCaseEntry[]> {
     caseIndex ??= fetch("/cases/index.json").then((response) => {
         if (!response.ok) throw new Error(`Case list ${response.status}`);
         return response.json();
     });
-    let entries: DatasetCaseEntry[];
     try {
-        entries = await caseIndex;
+        return await caseIndex;
     } catch (error) {
         caseIndex = null;
         throw error;
     }
-    const choices = entries.filter((entry) => entry.fits.includes(id) && entry.id !== currentId);
-    const pick = choices[Math.floor(Math.random() * choices.length)];
-    const response = await fetch(`/cases/${pick.id}.json`);
-    if (!response.ok) throw new Error(`Case ${pick.id} ${response.status}`);
+}
+
+export async function loadDatasetCase(id: string): Promise<DatasetCase> {
+    const response = await fetch(`/cases/${encodeURIComponent(id)}.json`);
+    if (!response.ok) throw new Error(`Case ${id} ${response.status}`);
     return response.json();
+}
+
+/** A random recorded case this character can play, other than the one they play now. */
+export async function randomDatasetCase(id: CharacterId, currentId?: string): Promise<DatasetCase> {
+    const choices = (await loadCaseIndex()).filter((entry) => entry.fits.includes(id) && entry.id !== currentId);
+    return loadDatasetCase(choices[Math.floor(Math.random() * choices.length)].id);
 }
 
 /** The realtime instructions for a character playing a patient from a recorded interview. */

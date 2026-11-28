@@ -592,7 +592,7 @@ function PatientCard({ id, recorded, loadingCase, revealed, onReveal, onAddress,
             <p className="patientCardReason">{recorded ? `“${recorded.reason}”` : patient.reason}</p>
             <p className="patientCardHint">Take their history: they only tell you what you ask. Speak or type in English.</p>
             <div className="patientCardCases">
-                <button type="button" onClick={onNewCase} disabled={loadingCase} data-tooltip="A new patient story from 223 recorded practice interviews">
+                <button type="button" onClick={onNewCase} disabled={loadingCase} data-tooltip="A new patient story from 224 recorded practice interviews">
                     {loadingCase ? <LoaderCircle size={14} className="spin" aria-hidden="true" /> : <Shuffle size={14} aria-hidden="true" />}
                     New case
                 </button>
@@ -622,6 +622,7 @@ function PatientCard({ id, recorded, loadingCase, revealed, onReveal, onAddress,
                     {recorded && <small className="patientCardCredit">{DATASET_CREDIT}</small>}
                 </div>
             )}
+            <a className="patientCardEval" href="/?eval" target="_blank" rel="noopener">How well do the patients answer? Validation ↗</a>
         </section>
     );
 }

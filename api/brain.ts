@@ -11,6 +11,7 @@ import { CLAUDE_MODELS, streamClaude } from "./_claude.js";
 // reply as deltas) or to think (then names a sound to make meanwhile), first sending
 //   {"type":"decision","mode":"reply"|"think","sound":"…"}
 // task "remember": condenses the memory journal into notes.
+// task "judge": compares a simulated patient's answers with the recorded patient's (the validation page, src/components/EvalPage.tsx).
 // task "estimate": a small fast model forecasts how long the answer will take, as {"seconds":…,"plan":"…"};
 // the deep request may then carry it as a time "budget", which caps searching and thinking.
 
@@ -264,11 +265,72 @@ async function remember(body: { notes?: unknown; journal?: unknown; now?: unknow
     return res.status(200).json({ notes: text.trim() });
 }
 
+const JUDGE_MODEL = "gpt-5.4-mini";
+const JUDGE_PROMPT = `You validate an AI that plays a patient in history-taking practice. The AI was given the transcript of a
+recorded practice interview (D = doctor, P = the real patient) as the patient's memory, then the same doctor questions were
+put to it. For each turn you get the doctor's question, the real patient's answer and the AI's answer. Judge each turn:
+- facts: "match" if the AI states the same facts as the real answer (wording may differ; leaving out a minor detail is fine),
+  "partial" if it misses an important fact or is vaguer, "contradiction" if any fact differs from the real answer or the
+  transcript (a different time, place, yes instead of no, an invented symptom or diagnosis), "none" if the turn holds no
+  facts to compare (greetings, "OK", thanks).
+- volunteered: true if the AI tells clearly more than the question asked and the real patient said (unasked details).
+- note: at most 12 words on what differs; empty when it matches.
+Then "summary": two sentences in English on how faithful and how natural the AI patient is overall.`;
+const JUDGE_SCHEMA = {
+    type: "object",
+    additionalProperties: false,
+    required: ["turns", "summary"],
+    properties: {
+        turns: {
+            type: "array",
+            items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["facts", "volunteered", "note"],
+                properties: {
+                    facts: { type: "string", enum: ["match", "partial", "contradiction", "none"] },
+                    volunteered: { type: "boolean" },
+                    note: { type: "string" },
+                },
+            },
+        },
+        summary: { type: "string" },
+    },
+};
+
+/** Judges a replayed interview turn by turn (see JUDGE_PROMPT). */
+async function judge(body: { turns?: unknown }, res: VercelResponse) {
+    const turns = Array.isArray(body.turns) ? body.turns.slice(0, 80) as { question?: unknown; reference?: unknown; answer?: unknown }[] : [];
+    if (!turns.length) return res.status(400).json({ error: "Nothing to judge" });
+    const clip = (value: unknown) => String(value ?? "").slice(0, 1500);
+    const input = turns.map((turn, i) => `Turn ${i + 1}\nDoctor: ${clip(turn.question)}\nReal patient: ${clip(turn.reference)}\nAI patient: ${clip(turn.answer)}`).join("\n\n");
+    const response = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+            model: JUDGE_MODEL,
+            instructions: `${JUDGE_PROMPT}\nReturn exactly ${turns.length} turns, in order.`,
+            input,
+            reasoning: { effort: "low" },
+            text: { format: { type: "json_schema", name: "judgement", strict: true, schema: JUDGE_SCHEMA } },
+            store: false,
+        }),
+    });
+    const data = await response.json() as { output?: { content?: { type?: string; text?: string }[] }[]; error?: unknown };
+    if (!response.ok) {
+        console.error("Judge error", response.status, JSON.stringify(data.error).slice(0, 500));
+        return res.status(502).json({ error: "Judge model failed" });
+    }
+    const text = (data.output ?? []).flatMap((item) => item.content ?? []).filter((part) => part.type === "output_text").map((part) => part.text).join("");
+    return res.status(200).json(JSON.parse(text));
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method !== "POST") return res.status(405).send("Method not allowed");
     // Remembering shares this route: the Hobby plan allows only 12 functions.
     const task = (req.body as { task?: string } | undefined)?.task;
     if (task === "remember") return remember(req.body, res);
+    if (task === "judge") return judge(req.body, res);
     const body = (req.body ?? {}) as Body;
     if (typeof body.instructions !== "string" || !Array.isArray(body.input)) {
         return res.status(400).send("Missing instructions/input");

@@ -1,0 +1,233 @@
+/* Validation page for patient mode (?eval). Its own light and dark tokens; the app's 3D styles don't apply here. */
+.evalBody {
+    overflow: auto;
+    background: var(--surface-0);
+}
+.evalBody, .evalPage {
+    --surface-0: #f4f6f5;
+    --surface-1: #ffffff;
+    --surface-2: #eef2f0;
+    --text-primary: #191919;
+    --text-secondary: #5f6664;
+    --hairline: rgba(11, 11, 11, 0.1);
+    --grid: #e7e7e7;
+    --accent: #1f8c78;
+    --good: #0aac23;
+    --warning: #fbb315;
+    --critical: #dc3c3d;
+    --neutral: #b9bfbd;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .evalBody,
+    :root:not([data-theme="light"]) .evalPage {
+        --surface-0: #121413;
+        --surface-1: #191919;
+        --surface-2: #222524;
+        --text-primary: #efefef;
+        --text-secondary: #a2a8a6;
+        --hairline: rgba(255, 255, 255, 0.1);
+        --grid: #303030;
+        --accent: #3cc2a6;
+        --neutral: #5d6361;
+    }
+}
+:root[data-theme="dark"] .evalBody,
+:root[data-theme="dark"] .evalPage {
+    --surface-0: #121413;
+    --surface-1: #191919;
+    --surface-2: #222524;
+    --text-primary: #efefef;
+    --text-secondary: #a2a8a6;
+    --hairline: rgba(255, 255, 255, 0.1);
+    --grid: #303030;
+    --accent: #3cc2a6;
+    --neutral: #5d6361;
+}
+
+.evalPage {
+    box-sizing: border-box;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 32px 24px 48px;
+    color: var(--text-primary);
+    font: 15px/1.5 system-ui, sans-serif;
+}
+.evalPage *, .evalPage *::before, .evalPage *::after { box-sizing: border-box; }
+.evalPage h1 { margin: 0 0 6px; font-size: 28px; line-height: 1.2; color: var(--text-primary); }
+.evalPage h2 { margin: 0; font-size: 16px; }
+
+.evalHeader { display: flex; gap: 24px; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
+.evalHeader p { margin: 0 0 6px; max-width: 760px; color: var(--text-secondary); }
+.evalCaveat { font-size: 13px; }
+.evalBack { flex: none; color: var(--accent); text-decoration: none; font-weight: 600; }
+.evalBack:hover { text-decoration: underline; }
+
+.evalControls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 16px;
+    align-items: flex-end;
+    padding: 16px;
+    border: 1px solid var(--hairline);
+    border-radius: 12px;
+    background: var(--surface-1);
+}
+.evalControls label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.evalControls select, .evalControls input {
+    min-width: 130px;
+    padding: 7px 10px;
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    background: var(--surface-2);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 14px;
+}
+.evalControls input { width: 140px; min-width: 0; }
+.evalRun {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    padding: 9px 18px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--accent);
+    color: white;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+.evalRun.isStop { background: var(--critical); }
+.evalRun:hover { filter: brightness(1.08); }
+
+.evalProgress { margin: 12px 0 0; padding: 8px 12px; border-radius: 8px; background: var(--surface-2); color: var(--text-secondary); font-size: 14px; }
+.evalProgress.isError { color: var(--critical); }
+
+.evalTiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
+.evalTile { display: grid; gap: 2px; padding: 14px 16px; border: 1px solid var(--hairline); border-radius: 12px; background: var(--surface-1); }
+.evalTileLabel { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.evalTile strong { font-size: 30px; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.evalTileHint { font-size: 12px; color: var(--text-secondary); }
+
+.evalChart { padding: 16px; border: 1px solid var(--hairline); border-radius: 12px; background: var(--surface-1); }
+.evalChartHead { display: flex; flex-wrap: wrap; gap: 8px 20px; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.evalLegend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 0; list-style: none; font-size: 13px; color: var(--text-secondary); }
+.evalLegend li { display: inline-flex; align-items: center; gap: 6px; }
+.evalLegend span { width: 10px; height: 10px; border-radius: 3px; }
+
+.evalBars { display: grid; gap: 4px; }
+.evalBarRow {
+    display: grid;
+    grid-template-columns: 130px minmax(0, 1fr) 52px;
+    gap: 12px;
+    align-items: center;
+    padding: 4px 6px;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.evalBarRow:hover { background: var(--surface-2); }
+.evalBarLabel { display: grid; line-height: 1.2; }
+.evalBarLabel strong { font-size: 13px; font-variant-numeric: tabular-nums; }
+.evalBarLabel small { font-size: 11px; color: var(--text-secondary); }
+.evalBarLabel small::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 50%; background: var(--member-color); }
+.evalBarTrack { height: 18px; border-left: 1px solid var(--grid); }
+.evalBarFill { display: flex; gap: 2px; height: 100%; }
+.evalSegment { min-width: 3px; height: 100%; }
+.evalSegment:first-child { border-radius: 0; }
+.evalSegment:last-child { border-radius: 0 4px 4px 0; }
+.evalBarError { font-size: 12px; color: var(--critical); padding-left: 8px; }
+.evalBarValue { font-size: 13px; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+.evalTip {
+    position: fixed;
+    z-index: 5;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: var(--text-primary);
+    color: var(--surface-1);
+    font-size: 12px;
+    pointer-events: none;
+}
+.evalActions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+.evalActions button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+.evalActions button:disabled { opacity: 0.5; cursor: default; }
+
+.evalCases { display: grid; gap: 10px; margin-top: 20px; }
+.evalEmpty { color: var(--text-secondary); }
+.evalCase { border: 1px solid var(--hairline); border-radius: 12px; background: var(--surface-1); overflow: hidden; }
+.evalCaseHead {
+    display: flex;
+    gap: 16px;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    padding: 12px 16px;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.evalCaseHead small { display: block; color: var(--text-secondary); font-style: italic; }
+.evalCaseScore { flex: none; font-weight: 700; font-variant-numeric: tabular-nums; }
+.evalCaseBody { padding: 0 16px 16px; }
+.evalSummary { margin: 0 0 8px; padding: 10px 12px; border-left: 3px solid var(--accent); background: var(--surface-2); border-radius: 0 8px 8px 0; }
+.evalDiagnosis { margin: 0 0 12px; font-size: 13px; color: var(--text-secondary); }
+
+.evalTurns { display: grid; font-size: 13.5px; }
+.evalTurn {
+    display: grid;
+    grid-template-columns: 1fr 1.2fr 1.2fr 170px;
+    gap: 14px;
+    padding: 10px 0;
+    border-top: 1px solid var(--grid);
+}
+.evalTurn.isHead { border-top: 0; padding-top: 0; font-size: 12px; font-weight: 700; color: var(--text-secondary); }
+.evalTurn > span:first-child { color: var(--text-secondary); }
+.evalVerdict { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.evalVerdict small { color: var(--text-secondary); font-size: 12px; }
+.evalChip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px 2px 6px;
+    border-radius: 999px;
+    border: 1px solid var(--chip);
+    background: color-mix(in srgb, var(--chip) 16%, transparent);
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.evalChip svg { color: var(--chip); }
+.evalChip.isExtra { --chip: var(--text-secondary); }
+.evalPending { color: var(--text-secondary); font-size: 12px; }
+.evalFooter { margin-top: 28px; font-size: 12px; color: var(--text-secondary); }
+
+@media (max-width: 800px) {
+    .evalPage { padding: 20px 16px 40px; }
+    .evalHeader { flex-direction: column; gap: 8px; }
+    .evalTiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .evalRun { margin-left: 0; }
+    .evalBarRow { grid-template-columns: 90px minmax(0, 1fr) 44px; gap: 8px; }
+    .evalTurn { grid-template-columns: 1fr; gap: 4px; }
+    .evalTurn.isHead { display: none; }
+    .evalTurn > span::before { content: attr(data-label); display: block; font-size: 11px; font-weight: 700; color: var(--text-secondary); }
+}
