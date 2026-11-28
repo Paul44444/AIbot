@@ -2232,6 +2232,23 @@ button:focus-visible {
 .patientCardCases button:hover:not(:disabled) { background: rgba(47, 165, 143, 0.4); }
 .patientCardCases button:disabled { opacity: 0.6; cursor: wait; }
 .patientCardCases .spin { animation: speechPreparingSpin 0.9s linear infinite; }
+.patientCardExample {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    width: 100%;
+    margin-bottom: 10px;
+    padding: 7px 10px;
+    border: 1px solid rgba(111, 216, 195, 0.5);
+    border-radius: 8px;
+    background: rgba(111, 216, 195, 0.1);
+    color: #bff3e8;
+    font: inherit;
+    font-size: 12.5px;
+    text-align: left;
+    cursor: pointer;
+}
+.patientCardExample:hover { background: rgba(111, 216, 195, 0.2); }
 .patientCardEval { display: block; margin-top: 8px; color: #6fd8c3; font-size: 11.5px; text-decoration: none; }
 .patientCardEval:hover { text-decoration: underline; }
 .patientCardCredit { display: block; margin-top: 8px; color: rgba(255, 255, 255, 0.5); font-size: 10.5px; }

@@ -1,0 +1,127 @@
+/* Example interview overlay (see ExampleInterview.tsx), in the dark glass style of the patient card. */
+.exampleBackdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 20000;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(8, 12, 16, 0.55);
+    backdrop-filter: blur(3px);
+}
+.examplePanel {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    width: min(1120px, 100%);
+    height: min(860px, 100%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
+    background: rgba(24, 28, 34, 0.96);
+    color: white;
+    font: 14px/1.5 system-ui, sans-serif;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+    overflow: hidden;
+}
+.examplePanel button, .examplePanel select { font: inherit; }
+
+.exampleHeader {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 20px;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.exampleHeader small { display: inline-flex; align-items: center; gap: 6px; color: #6fd8c3; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; font-size: 11px; }
+.exampleHeader h2 { margin: 2px 0 0; font-size: 18px; color: white; }
+.exampleHeader h2 span { font-weight: 400; font-style: italic; color: rgba(255, 255, 255, 0.75); }
+.examplePick { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.examplePick select, .exampleControls select {
+    padding: 5px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    color: white;
+}
+.examplePick option, .exampleControls option { color: #191919; }
+.examplePick button, .exampleControls button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    color: white;
+    cursor: pointer;
+}
+.examplePick button:hover:not(:disabled), .exampleControls button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.14); }
+.exampleControls button:disabled { opacity: 0.45; cursor: default; }
+.exampleClose { padding: 6px !important; }
+
+.exampleBody { display: grid; grid-template-columns: 250px minmax(0, 1fr); min-height: 0; }
+.exampleGuide { padding: 14px 12px 14px 18px; border-right: 1px solid rgba(255, 255, 255, 0.1); overflow-y: auto; }
+.exampleGuide > strong { display: block; margin-bottom: 8px; font-size: 13px; }
+.exampleGuide ol { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.exampleGuide button {
+    display: grid;
+    width: 100%;
+    padding: 6px 8px 6px 12px;
+    border: 0;
+    border-left: 3px solid var(--section);
+    border-radius: 0 8px 8px 0;
+    background: none;
+    color: white;
+    text-align: left;
+    cursor: pointer;
+}
+.exampleGuide button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.06); }
+.exampleGuide button.isCurrent { background: color-mix(in srgb, var(--section) 22%, transparent); }
+.exampleGuide button.isEmpty { opacity: 0.4; cursor: default; }
+.exampleGuideLabel { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; font-size: 13px; }
+.exampleGuideLabel em { font-style: normal; color: rgba(255, 255, 255, 0.6); font-variant-numeric: tabular-nums; }
+.exampleGuide small { color: rgba(255, 255, 255, 0.55); font-size: 11.5px; line-height: 1.35; }
+.exampleGuide p { margin: 10px 0 0; color: rgba(255, 255, 255, 0.5); font-size: 11.5px; }
+
+.exampleMain { min-height: 0; overflow-y: auto; padding: 16px 20px; }
+.exampleTurns { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.exampleTurns li { max-width: 78%; padding: 8px 12px; border-radius: 12px; animation: exampleIn 220ms ease-out; }
+.exampleTurns li p { margin: 0; }
+.exampleTurns .isDoctor { justify-self: start; border: 1px solid color-mix(in srgb, var(--section) 55%, transparent); border-left: 4px solid var(--section); background: rgba(255, 255, 255, 0.05); }
+.exampleTurns .isPatient { justify-self: end; background: rgba(255, 255, 255, 0.11); }
+.exampleWho { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 2px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: rgba(255, 255, 255, 0.55); }
+.exampleTag { padding: 0 8px; border-radius: 999px; background: color-mix(in srgb, var(--section) 25%, transparent); color: white; text-transform: none; letter-spacing: 0; font-weight: 600; }
+@keyframes exampleIn { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { .exampleTurns li { animation: none; } }
+.exampleError { color: #ff8a8a; }
+.exampleSolution { margin-top: 16px; padding: 12px 14px; border-radius: 12px; border: 1px dashed rgba(255, 255, 255, 0.2); }
+.exampleSolution button { padding: 5px 12px; border: 1px solid #2fa58f; border-radius: 999px; background: rgba(47, 165, 143, 0.2); color: white; cursor: pointer; }
+.exampleSolution p { margin: 10px 0 4px; }
+.exampleSolution ul { margin: 0; padding-left: 18px; color: rgba(255, 255, 255, 0.85); }
+
+.exampleControls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    align-items: center;
+    padding: 12px 18px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+.exampleControls .examplePrimary { border-color: #2fa58f; background: #2fa58f; font-weight: 700; }
+.exampleControls .examplePrimary:hover:not(:disabled) { background: #36b89f; }
+.exampleControls button.isOn { border-color: #2fa58f; background: rgba(47, 165, 143, 0.25); }
+.examplePace { display: inline-flex; align-items: center; gap: 6px; color: rgba(255, 255, 255, 0.7); font-size: 13px; }
+.exampleProgress { margin-left: auto; color: rgba(255, 255, 255, 0.6); font-size: 13px; font-variant-numeric: tabular-nums; }
+.exampleCredit { flex-basis: 100%; color: rgba(255, 255, 255, 0.4); font-size: 11px; }
+
+@media (max-width: 760px) {
+    .exampleBackdrop { padding: 8px; }
+    .exampleBody { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+    .exampleGuide { max-height: 120px; padding: 8px 12px; border-right: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+    .exampleGuide ol { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .exampleGuide small, .exampleGuide p { display: none; }
+    .exampleMain { padding: 12px; }
+    .exampleTurns li { max-width: 92%; }
+    .exampleProgress { margin-left: 0; }
+}

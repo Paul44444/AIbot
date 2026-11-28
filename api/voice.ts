@@ -13,7 +13,13 @@ const VOICES = new Set([
     "JBFqnCBsd6RMkjVDRZzb", // George: warm, mature British man (Smyth as a patient)
 ]);
 /** OpenAI voices, the same as the characters' realtime voices. */
-const OPENAI_VOICES = new Set(["cedar"]);
+const OPENAI_VOICES = new Set(["cedar", "marin", "ash"]);
+/** How OpenAI's speech model reads; example interviews read the doctor and the patient. */
+const OPENAI_STYLES: Record<string, string> = {
+    default: "Speak calmly and clearly, like a friendly scientist in a relaxed conversation.",
+    doctor: "Speak like a calm, friendly doctor taking a patient's history in a clinic.",
+    patient: "Speak like an ordinary patient talking to their doctor: natural, a little unsure, not performed.",
+};
 // Long, thoughtful replies must be spoken in full; ElevenLabs v3 takes up to 3,000 characters per request.
 const MAX_TEXT = 2800;
 
@@ -22,7 +28,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const text = String(req.query.text ?? "").trim().slice(0, MAX_TEXT);
     const voice = String(req.query.voice ?? "");
     if (!text || !(VOICES.has(voice) || OPENAI_VOICES.has(voice))) return res.status(400).send("Missing text or unknown voice");
-    const upstream = OPENAI_VOICES.has(voice) ? await openAiSpeech(text, voice, Number(req.query.speed) || 1) : await elevenLabs(text, voice, Number(req.query.speed) || 1);
+    const upstream = OPENAI_VOICES.has(voice) ? await openAiSpeech(text, voice, Number(req.query.speed) || 1, OPENAI_STYLES[String(req.query.role ?? "")] ?? OPENAI_STYLES.default) : await elevenLabs(text, voice, Number(req.query.speed) || 1);
     if (!upstream) return res.status(500).send("Voice service key is not set");
     if (!upstream.ok || !upstream.body) {
         const detail = await upstream.text().catch(() => "");
@@ -37,7 +43,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.end();
 }
 
-async function openAiSpeech(text: string, voice: string, speed: number) {
+async function openAiSpeech(text: string, voice: string, speed: number, style: string) {
     if (!process.env.OPENAI_API_KEY) return null;
     return fetch("https://api.openai.com/v1/audio/speech", {
         method: "POST",
@@ -46,7 +52,7 @@ async function openAiSpeech(text: string, voice: string, speed: number) {
             model: "gpt-4o-mini-tts",
             voice,
             input: text,
-            instructions: "Speak calmly and clearly, like a friendly scientist in a relaxed conversation.",
+            instructions: style,
             response_format: "mp3",
             speed: Math.min(4, Math.max(0.25, speed)),
         }),

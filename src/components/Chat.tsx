@@ -7,7 +7,7 @@ import type { Message } from "../types/chat";
 import { useEffect, useRef } from 'react'
 
 import { loadStoredConversations, upsertConversationNode } from "../data/conversationStorage";
-import { Mic, MicOff, Lock, Check, LoaderCircle, Pause, Play, PencilLine, CalendarDays, Maximize2, Minimize2, Volume2, VolumeX, Stethoscope, Shuffle, Undo2 } from "lucide-react";
+import { Mic, MicOff, Lock, Check, LoaderCircle, Pause, Play, PencilLine, CalendarDays, Maximize2, Minimize2, Volume2, VolumeX, Stethoscope, Shuffle, Undo2, BookOpen } from "lucide-react";
 import { DATASET_CREDIT, PATIENT_CASES, randomDatasetCase, type DatasetCase } from "../data/patients";
 import { useTopicProgress } from "../hooks/useTopicProgress";
 import {
@@ -570,7 +570,7 @@ function LanguagePanel({
  * their hand, their teaser appears and the user decides whether they speak.
  */
 /** Patient mode: who the student is seeing, and (after the talk) what they should have found out. */
-function PatientCard({ id, recorded, loadingCase, revealed, onReveal, onAddress, onNewCase, onOwnCase }: {
+function PatientCard({ id, recorded, loadingCase, revealed, onReveal, onAddress, onNewCase, onOwnCase, onExample }: {
     id: CharacterId;
     /** The recorded case this patient plays, if not their own. */
     recorded: DatasetCase | null;
@@ -580,6 +580,7 @@ function PatientCard({ id, recorded, loadingCase, revealed, onReveal, onAddress,
     onAddress: (id: CharacterId) => void;
     onNewCase: () => void;
     onOwnCase: () => void;
+    onExample: () => void;
 }) {
     const patient = PATIENT_CASES[id];
     const name = CHARACTER_BY_ID[id].name;
@@ -603,6 +604,10 @@ function PatientCard({ id, recorded, loadingCase, revealed, onReveal, onAddress,
                     </button>
                 )}
             </div>
+            <button type="button" className="patientCardExample" onClick={onExample}>
+                <BookOpen size={14} aria-hidden="true" />
+                Not sure what to ask? Watch an example interview
+            </button>
             <div className="patientCardOthers">
                 {CHARACTERS.filter((character) => character.id !== id).map((character) => (
                     <button key={character.id} type="button" onClick={() => onAddress(character.id)} style={{ "--member-color": character.color } as CSSProperties}>
@@ -969,6 +974,7 @@ const LazySceneView = lazy(() => import("./SceneView"));
 const LazyDiagramPanel = lazy(() => import("./DiagramPanel"));
 const LazyYouTubePanel = lazy(() => import("./YouTubePanel"));
 const LazyCalendarPanel = lazy(() => import("./CalendarPanel"));
+const LazyExampleInterview = lazy(() => import("./ExampleInterview"));
 const LazyMinimap = lazy(() => import("./outdoor/Minimap"));
 
 /** What the group is told about the video the user is watching. */
@@ -1125,6 +1131,8 @@ export default function Chat({
     const [recordedCases, setRecordedCases] = useState<Partial<Record<CharacterId, DatasetCase>>>({});
     const recordedCasesRef = useRef(recordedCases);
     const [loadingCase, setLoadingCase] = useState(false);
+    // The example interview from the dataset, for students who don't know what to ask yet.
+    const [exampleOpen, setExampleOpen] = useState(false);
     /** A new consultation with this patient, playing a recorded case (or, null, their own). */
     const startCase = (id: CharacterId, patientCase: DatasetCase | null) => {
         resetConversation();
@@ -2037,7 +2045,14 @@ ${topicGuidance}
                     onAddress={addressCharacter}
                     onNewCase={() => void newCase(addressee)}
                     onOwnCase={() => startCase(addressee, null)}
+                    onExample={() => setExampleOpen(true)}
                 />
+            )}
+
+            {exampleOpen && (
+                <Suspense fallback={null}>
+                    <LazyExampleInterview avoidId={recordedCases[addressee]?.id} onClose={() => setExampleOpen(false)} />
+                </Suspense>
             )}
 
             {calendarOpen && (
