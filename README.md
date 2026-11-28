@@ -74,3 +74,10 @@ export default defineConfig([
   },
 ])
 ```
+
+## Patient mode: recorded cases
+
+Besides each character's own patient case, "New case" gives the patient a story from one of 223 recorded
+history-taking interviews (`public/cases`, cut before the doctor's conclusion; cases where a parent answers for a child are left out).
+Source: Fareez F. et al., "A dataset of simulated patient-physician medical interviews with a focus on respiratory cases",
+*Scientific Data* 9, 313 (2022), https://doi.org/10.1038/s41597-022-01423-1; data https://doi.org/10.6084/m9.figshare.c.5545842.v1 (CC0).

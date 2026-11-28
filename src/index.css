@@ -2214,6 +2214,25 @@ button:focus-visible {
 .patientCardMode { color: #6fd8c3; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; font-size: 10.5px; }
 .patientCardReason { margin: 0 0 8px; font-style: italic; color: rgba(255, 255, 255, 0.85); }
 .patientCardHint { margin: 0 0 10px; color: rgba(255, 255, 255, 0.6); font-size: 12px; }
+.patientCardSource { display: block; margin: -2px 0 4px; color: rgba(255, 255, 255, 0.55); font-size: 11px; }
+.patientCardCases { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.patientCardCases button {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border: 1px solid #2fa58f;
+    border-radius: 999px;
+    color: white;
+    background: rgba(47, 165, 143, 0.22);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+.patientCardCases button:hover:not(:disabled) { background: rgba(47, 165, 143, 0.4); }
+.patientCardCases button:disabled { opacity: 0.6; cursor: wait; }
+.patientCardCases .spin { animation: speechPreparingSpin 0.9s linear infinite; }
+.patientCardCredit { display: block; margin-top: 8px; color: rgba(255, 255, 255, 0.5); font-size: 10.5px; }
 .patientCardOthers { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .patientCardOthers button,
 .patientCardReveal {

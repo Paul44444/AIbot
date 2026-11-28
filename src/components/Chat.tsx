@@ -7,8 +7,8 @@ import type { Message } from "../types/chat";
 import { useEffect, useRef } from 'react'
 
 import { loadStoredConversations, upsertConversationNode } from "../data/conversationStorage";
-import { Mic, MicOff, Lock, Check, LoaderCircle, Pause, Play, PencilLine, CalendarDays, Maximize2, Minimize2, Volume2, VolumeX, Stethoscope } from "lucide-react";
-import { PATIENT_CASES } from "../data/patients";
+import { Mic, MicOff, Lock, Check, LoaderCircle, Pause, Play, PencilLine, CalendarDays, Maximize2, Minimize2, Volume2, VolumeX, Stethoscope, Shuffle, Undo2 } from "lucide-react";
+import { DATASET_CREDIT, PATIENT_CASES, randomDatasetCase, type DatasetCase } from "../data/patients";
 import { useTopicProgress } from "../hooks/useTopicProgress";
 import {
     FREE_CONVERSATION_TOPIC_ID,
@@ -569,23 +569,43 @@ function LanguagePanel({
  * their hand, their teaser appears and the user decides whether they speak.
  */
 /** Patient mode: who the student is seeing, and (after the talk) what they should have found out. */
-function PatientCard({ id, revealed, onReveal, onAddress }: {
+function PatientCard({ id, recorded, loadingCase, revealed, onReveal, onAddress, onNewCase, onOwnCase }: {
     id: CharacterId;
+    /** The recorded case this patient plays, if not their own. */
+    recorded: DatasetCase | null;
+    loadingCase: boolean;
     revealed: boolean;
     onReveal: () => void;
     onAddress: (id: CharacterId) => void;
+    onNewCase: () => void;
+    onOwnCase: () => void;
 }) {
     const patient = PATIENT_CASES[id];
+    const name = CHARACTER_BY_ID[id].name;
+    const solution = recorded ? { diagnosis: recorded.diagnosis, keyPoints: recorded.keyPoints } : patient.solution;
     return (
         <section className="patientCard" style={{ "--member-color": CHARACTER_BY_ID[id].color } as CSSProperties} aria-label="Current patient">
             <small className="patientCardMode">Patient mode · history-taking practice</small>
-            <h2>{patient.fullName}, {patient.age}</h2>
-            <p className="patientCardReason">{patient.reason}</p>
+            <h2>{recorded ? `${name}${recorded.age ? `, ${recorded.age}` : ""}` : `${patient.fullName}, ${patient.age}`}</h2>
+            {recorded && <small className="patientCardSource">{recorded.category} · recorded case {recorded.id}</small>}
+            <p className="patientCardReason">{recorded ? `“${recorded.reason}”` : patient.reason}</p>
             <p className="patientCardHint">Take their history: they only tell you what you ask. Speak or type in English.</p>
+            <div className="patientCardCases">
+                <button type="button" onClick={onNewCase} disabled={loadingCase} data-tooltip="A new patient story from 223 recorded practice interviews">
+                    {loadingCase ? <LoaderCircle size={14} className="spin" aria-hidden="true" /> : <Shuffle size={14} aria-hidden="true" />}
+                    New case
+                </button>
+                {recorded && (
+                    <button type="button" onClick={onOwnCase} disabled={loadingCase}>
+                        <Undo2 size={14} aria-hidden="true" />
+                        {patient.fullName.split(" ")[0]}'s own case
+                    </button>
+                )}
+            </div>
             <div className="patientCardOthers">
                 {CHARACTERS.filter((character) => character.id !== id).map((character) => (
                     <button key={character.id} type="button" onClick={() => onAddress(character.id)} style={{ "--member-color": character.color } as CSSProperties}>
-                        {PATIENT_CASES[character.id].fullName}
+                        {character.name}
                     </button>
                 ))}
             </div>
@@ -595,9 +615,10 @@ function PatientCard({ id, revealed, onReveal, onAddress }: {
             {revealed && (
                 <div className="patientCardSolution">
                     <strong>Diagnosis</strong>
-                    <p>{patient.solution.diagnosis}</p>
+                    <p>{solution.diagnosis}</p>
                     <strong>A good history covers</strong>
-                    <ul>{patient.solution.keyPoints.map((point) => <li key={point}>{point}</li>)}</ul>
+                    <ul>{solution.keyPoints.map((point) => <li key={point}>{point}</li>)}</ul>
+                    {recorded && <small className="patientCardCredit">{DATASET_CREDIT}</small>}
                 </div>
             )}
         </section>
@@ -1098,6 +1119,32 @@ export default function Chat({
     const patientModeRef = useRef(patientMode);
     // Whose solution the student has opened; it closes when they see another patient.
     const [revealedCase, setRevealedCase] = useState<CharacterId | null>(null);
+    // Patients playing a recorded case instead of their own (see patients.ts).
+    const [recordedCases, setRecordedCases] = useState<Partial<Record<CharacterId, DatasetCase>>>({});
+    const recordedCasesRef = useRef(recordedCases);
+    const [loadingCase, setLoadingCase] = useState(false);
+    /** A new consultation with this patient, playing a recorded case (or, null, their own). */
+    const startCase = (id: CharacterId, patientCase: DatasetCase | null) => {
+        resetConversation();
+        const next = { ...recordedCasesRef.current };
+        if (patientCase) next[id] = patientCase;
+        else delete next[id];
+        recordedCasesRef.current = next;
+        setRecordedCases(next);
+        setRevealedCase(null);
+        // The fresh group starts with the first patient; the student stays with this one.
+        if (id !== START_CHARACTER) addressCharacter(id);
+    };
+    const newCase = async (id: CharacterId) => {
+        setLoadingCase(true);
+        try {
+            startCase(id, await randomDatasetCase(id, recordedCasesRef.current[id]?.id));
+        } catch (error) {
+            console.error("Could not load a case:", error);
+        } finally {
+            setLoadingCase(false);
+        }
+    };
     const togglePatientMode = () => {
         const next = !patientModeRef.current;
         // Every switch starts a fresh consultation (or a fresh chat among friends).
@@ -1380,6 +1427,7 @@ export default function Chat({
         group.setMuted(soundOffRef.current);
         group.setMode(conversationModeRef.current);
         group.setPatientMode(patientModeRef.current);
+        for (const character of CHARACTERS) group.setPatientCase(character.id, recordedCasesRef.current[character.id] ?? null);
         group.setBrainModel("smyth", smythModelRef.current === REALTIME_MODEL ? null : smythModelRef.current);
         group.updateSettings(settingsRef.current, speechRateRef.current, transcriptionLanguage(speechLanguageRef.current));
         if (videoRef.current) group.setVideoContext(videoContext(videoRef.current), videoPosition);
@@ -1983,9 +2031,13 @@ ${topicGuidance}
             {patientMode && (
                 <PatientCard
                     id={addressee}
+                    recorded={recordedCases[addressee] ?? null}
+                    loadingCase={loadingCase}
                     revealed={revealedCase === addressee}
                     onReveal={() => setRevealedCase((revealed) => revealed === addressee ? null : addressee)}
                     onAddress={addressCharacter}
+                    onNewCase={() => void newCase(addressee)}
+                    onOwnCase={() => startCase(addressee, null)}
                 />
             )}
 

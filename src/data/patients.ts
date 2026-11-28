@@ -132,7 +132,8 @@ const PATIENT_STAGE_DIRECTIONS = `Your replies are text that a voice actor perfo
 directions in square brackets, always in English, right before the words they colour, for example: [sighs], [winces],
 [groans], [nervous laugh], [worried], [hesitant], [quietly], [tearful], [breathless], [coughs], [relieved], [embarrassed],
 [annoyed], [chuckles]. Use one or two per reply where a real patient's voice would change; vary them.
-Everything outside the brackets is spoken word for word, so write only what you say: no emojis, no lists, no markdown.`;
+Everything outside the brackets is spoken word for word, so write only what you say: no emojis, no lists, no markdown.
+Start every reply with the answer itself. Never say "Let me think", "How do I put this" or anything about how you will answer.`;
 
 const PATIENT_RULES = `[Patient mode] This is a training simulation for medical students. The user is a medical student
 (the doctor in this consultation) who is practising how to take a history and talk with patients. You are the patient.
@@ -155,7 +156,20 @@ How you behave:
   your worries; being rushed, lectured or talked to in jargon makes you shorter, more anxious or annoyed.
 - Nobody can examine you here. If the student says they examine you, only say what you feel ("Ow, yes, right there").
 - If the student greets you, greet back and wait to be asked; if they explain something or say goodbye, react as a patient would.
-- Speak English. Only if the student talks to you in another language for whole sentences, answer in that language.`;
+- Speak English. Only if the student talks to you in another language for whole sentences, answer in that language.
+
+How real patients answer, from recorded practice interviews (D = doctor, P = patient). Sound like this: plain, short,
+sometimes unsure, with small hesitations, and nothing the doctor did not ask for:
+D: Has the cough been getting better, staying the same or getting worse?
+P: I think it's getting worse.
+D: Are you bringing up any phlegm?
+P: No.
+D: Have you been coughing at night time as well?
+P: Um, it's mostly during the day and in the evenings, it doesn't wake me up.
+D: Have you had any fevers or chills?
+P: I don't know about fevers. I guess I was feeling a little bit hot last night, but I didn't take my temperature.
+D: Any loss of smell?
+P: No, no, I don't think so.`;
 
 /** The realtime instructions for a character playing their patient. */
 export function patientInstructions(character: Character) {
@@ -164,6 +178,76 @@ export function patientInstructions(character: Character) {
 
 Your patient story:
 ${patient.story}
+
+Deep down you are still ${character.name}'s kind of person (${character.summary}), which colours how you talk.
+
+${PATIENT_STAGE_DIRECTIONS}`;
+}
+
+/**
+ * A case from "A dataset of simulated patient-physician medical interviews with a focus on respiratory cases"
+ * (Fareez et al., Scientific Data 2022, CC0): a recorded practice interview, cut before the doctor's conclusion.
+ * Built by a script into public/cases; index.json lists them, <id>.json holds each.
+ */
+export type DatasetCaseEntry = {
+    id: string;
+    category: string;
+    sex: "female" | "male" | "unknown";
+    age: number | null;
+    reason: string;
+    /** The characters who can play this patient (sex and age). */
+    fits: CharacterId[];
+};
+
+export type DatasetCase = DatasetCaseEntry & {
+    diagnosis: string;
+    keyPoints: string[];
+    manner: string;
+    /** Lines "D: …" (that doctor) and "P: …" (the patient). */
+    transcript: string;
+};
+
+export const DATASET_CREDIT = "Case from Fareez et al., Scientific Data 2022 (CC0)";
+
+let caseIndex: Promise<DatasetCaseEntry[]> | null = null;
+
+/** A random recorded case this character can play, other than the one they play now. */
+export async function randomDatasetCase(id: CharacterId, currentId?: string): Promise<DatasetCase> {
+    caseIndex ??= fetch("/cases/index.json").then((response) => {
+        if (!response.ok) throw new Error(`Case list ${response.status}`);
+        return response.json();
+    });
+    let entries: DatasetCaseEntry[];
+    try {
+        entries = await caseIndex;
+    } catch (error) {
+        caseIndex = null;
+        throw error;
+    }
+    const choices = entries.filter((entry) => entry.fits.includes(id) && entry.id !== currentId);
+    const pick = choices[Math.floor(Math.random() * choices.length)];
+    const response = await fetch(`/cases/${pick.id}.json`);
+    if (!response.ok) throw new Error(`Case ${pick.id} ${response.status}`);
+    return response.json();
+}
+
+/** The realtime instructions for a character playing a patient from a recorded interview. */
+export function datasetPatientInstructions(character: Character, patientCase: DatasetCase) {
+    const age = patientCase.age
+        ? `You are ${patientCase.age} years old.`
+        : "Your age is not given: pick one that fits both the story and your voice, and keep to it.";
+    return `${PATIENT_RULES}
+
+Your patient story: you are ${character.name}. ${age}
+It comes from a recorded consultation with another doctor, below (D = that doctor, P = you). Everything you said there
+is true for you, and it is all you know about your illness: the same complaints, timeline, history, medication, family
+and life. Never mention that consultation or that doctor; the student in front of you is the doctor now, and you see
+them for the first time. Answer each question the way you did there: the same facts, just as short and plain, but only
+what this student asks, in the order they ask. You don't know your diagnosis; if asked what you think it is, give a
+patient's guess or worry, never a medical name the recording doesn't have you say.
+The recording sounds flat; as a real person you have feelings about this (${patientCase.manner}): show them.
+
+${patientCase.transcript}
 
 Deep down you are still ${character.name}'s kind of person (${character.summary}), which colours how you talk.
 

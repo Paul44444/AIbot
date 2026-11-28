@@ -2,7 +2,7 @@ import { sendRealtimeText, startRealtimeVoiceSession } from "./realtimeVoice";
 import { describeFeed, loadFeed } from "./characterFeed";
 import { calendarContext } from "./calendar";
 import { memoryContext, remember } from "./memory";
-import { PATIENT_CASES, patientInstructions } from "../data/patients";
+import { PATIENT_CASES, datasetPatientInstructions, patientInstructions, type DatasetCase } from "../data/patients";
 import {
     CHARACTERS,
     START_CHARACTER,
@@ -193,6 +193,8 @@ export class GroupConversation {
     private mode: ConversationMode = "casual";
     /** Patient mode: every character plays a patient for a medical student to interview (see patients.ts). */
     private patients = false;
+    /** Patients who play a recorded case instead of their own (see patients.ts). */
+    private datasetCases = new Map<CharacterId, DatasetCase>();
     /** Text models the user chose for characters (null: the realtime model answers itself). */
     private brainModels = new Map<CharacterId, string | null>();
     /** ISO 639-1 code the user's speech is transcribed in; null lets the transcriber guess. */
@@ -276,6 +278,19 @@ export class GroupConversation {
     setPatientMode(on: boolean) {
         this.patients = on;
         for (const [id, session] of this.ready) this.sendInstructions(id, session);
+    }
+
+    /** Gives a patient a recorded case, or (null) their own case back. Meant before they connect. */
+    setPatientCase(id: CharacterId, patientCase: DatasetCase | null) {
+        if (patientCase) this.datasetCases.set(id, patientCase);
+        else this.datasetCases.delete(id);
+        const session = this.ready.get(id);
+        if (session) this.sendInstructions(id, session);
+    }
+
+    private patientInstructions(id: CharacterId) {
+        const patientCase = this.datasetCases.get(id);
+        return patientCase ? datasetPatientInstructions(CHARACTER_BY_ID[id], patientCase) : patientInstructions(CHARACTER_BY_ID[id]);
     }
 
     /** Lets a text model write a character's replies, or (null) hands them back to the realtime model. */
@@ -529,7 +544,7 @@ export class GroupConversation {
             session: {
                 type: "realtime",
                 output_modalities: this.outputs(id),
-                instructions: this.patients ? patientInstructions(CHARACTER_BY_ID[id]) : characterInstructions(CHARACTER_BY_ID[id], this.settingsWithMemory()),
+                instructions: this.patients ? this.patientInstructions(id) : characterInstructions(CHARACTER_BY_ID[id], this.settingsWithMemory()),
                 // Real time-stretching; asking for a slower pace in the instructions barely works.
                 audio: {
                     // Guessing the language per utterance mistakes short or quiet German for Japanese or Swedish.
