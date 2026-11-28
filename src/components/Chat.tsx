@@ -149,6 +149,7 @@ function LinkedText({ text, onWord, onWordClick }: {
     return parts;
 }
 
+/** Where an earlier version remembered the maximized panel; cleared, the panel always starts small. */
 const TRANSCRIPT_EXPANDED_KEY = "transcriptExpanded";
 /** Patient mode is on unless the user turned it off. */
 const PATIENT_MODE_OFF_KEY = "patientModeOff";
@@ -1189,22 +1190,19 @@ export default function Chat({
         void element.offsetWidth;
         element.classList.add("isFlashing");
     };
-    const [transcriptExpanded, setTranscriptExpanded] = useState(() => {
+    // The panel starts small, so the consultation room stays in view.
+    const [transcriptExpanded, setTranscriptExpanded] = useState(false);
+    useEffect(() => {
         try {
-            return localStorage.getItem(TRANSCRIPT_EXPANDED_KEY) === "true";
+            localStorage.removeItem(TRANSCRIPT_EXPANDED_KEY);
         } catch {
-            return false;
+            // Nothing saved then.
         }
-    });
+    }, []);
     const conversationModeRef = useRef<ConversationMode>(transcriptExpanded ? "professional" : "casual");
     const toggleTranscriptExpanded = () => {
         const next = !transcriptExpanded;
         setTranscriptExpanded(next);
-        try {
-            localStorage.setItem(TRANSCRIPT_EXPANDED_KEY, String(next));
-        } catch {
-            // Only a convenience.
-        }
         conversationModeRef.current = next ? "professional" : "casual";
         groupRef.current?.setMode(conversationModeRef.current);
         // Rebuilds the settings without (or again with) the sentence limit.
