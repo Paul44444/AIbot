@@ -24,6 +24,8 @@ type CaseRun = {
 };
 
 const RESULTS_KEY = "patientEvalResults";
+/** A validation run kept with the site (public/eval/results.json), e.g. to show in a presentation. */
+type SavedRun = { ranAt: string; questionsPerCase: number; runs: CaseRun[] };
 const VERDICTS: { id: Verdict; label: string; color: string }[] = [
     { id: "match", label: "Same facts", color: "var(--good)" },
     { id: "partial", label: "Partly", color: "var(--warning)" },
@@ -153,6 +155,15 @@ export default function EvalPage() {
     const [error, setError] = useState("");
     const [openCase, setOpenCase] = useState<string | null>(null);
     const abortRef = useRef<AbortController | null>(null);
+    const [saved, setSaved] = useState<SavedRun | null>(null);
+    // The saved run first, unless this browser has runs of its own.
+    const [view, setView] = useState<"saved" | "mine">(() => loadResults().some((r) => r.finishedAt) ? "mine" : "saved");
+    useEffect(() => {
+        fetch("/eval/results.json")
+            .then((response) => response.ok ? response.json() : null)
+            .then(setSaved)
+            .catch(() => setSaved(null));
+    }, []);
 
     useEffect(() => {
         document.title = "Patient validation";
@@ -170,8 +181,11 @@ export default function EvalPage() {
         }
     }, [results]);
 
-    const overall = useMemo(() => stats(results), [results]);
-    const finished = results.filter((run) => run.finishedAt);
+    const showSaved = view === "saved" && saved !== null;
+    const shown = showSaved ? saved.runs : results;
+    const overall = useMemo(() => stats(shown), [shown]);
+    const finished = shown.filter((run) => run.finishedAt);
+    const myRuns = results.filter((run) => run.finishedAt).length;
 
     /** Changes the case that is running now. */
     const update = (change: (run: CaseRun) => CaseRun) =>
@@ -181,6 +195,7 @@ export default function EvalPage() {
         const controller = new AbortController();
         abortRef.current = controller;
         setRunning(true);
+        setView("mine");
         setError("");
         try {
             const index = await loadCaseIndex();
@@ -243,7 +258,7 @@ export default function EvalPage() {
         URL.revokeObjectURL(link.href);
     };
 
-    const live = results.find((r) => !r.finishedAt);
+    const live = showSaved ? undefined : results.find((r) => !r.finishedAt);
 
     return (
         <main className="evalPage">
@@ -301,6 +316,23 @@ export default function EvalPage() {
             </section>
             {(progress || error) && <p className={`evalProgress${error ? " isError" : ""}`} role="status">{error || progress}</p>}
 
+            {saved && (
+                <div className="evalViews" role="tablist" aria-label="Which results">
+                    <button type="button" role="tab" aria-selected={showSaved} className={showSaved ? "isActive" : ""} onClick={() => setView("saved")}>
+                        Validation run · {new Date(saved.ranAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} · {saved.runs.length} cases
+                    </button>
+                    <button type="button" role="tab" aria-selected={!showSaved} className={!showSaved ? "isActive" : ""} onClick={() => setView("mine")}>
+                        My runs{myRuns ? ` (${myRuns})` : ""}
+                    </button>
+                </div>
+            )}
+            {showSaved && (
+                <p className="evalRunNote">
+                    {saved.runs.length} random recorded cases, played by Jenny, Jinx and Smyth; the first {saved.questionsPerCase} doctor
+                    questions of each, {overall.judged} answers judged.
+                </p>
+            )}
+
             <section className="evalTiles" aria-label="Overall results">
                 <Tile label="Same facts" value={percent(overall.agreement)} hint="Answers with the real patient's facts (partly = half)" />
                 <Tile label="Contradictions" value={percent(overall.contradictions)} hint="Answers with a fact that differs from the recording" />
@@ -315,12 +347,17 @@ export default function EvalPage() {
                         <h2>Answers per case</h2>
                         <Legend />
                     </div>
-                    <CaseBars runs={finished} onOpen={setOpenCase} />
+                    <CaseBars runs={finished} onOpen={(key) => {
+                        setOpenCase(key);
+                        requestAnimationFrame(() => document.getElementById(`case-${key}`)?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                    }} />
                     <div className="evalActions">
                         <button type="button" onClick={download}><Download size={14} aria-hidden="true" /> Download results</button>
-                        <button type="button" onClick={() => setResults((runs) => runs.filter((r) => !r.finishedAt))} disabled={running}>
-                            <Trash2 size={14} aria-hidden="true" /> Clear
-                        </button>
+                        {!showSaved && (
+                            <button type="button" onClick={() => setResults((runs) => runs.filter((r) => !r.finishedAt))} disabled={running}>
+                                <Trash2 size={14} aria-hidden="true" /> Clear
+                            </button>
+                        )}
                     </div>
                 </section>
             )}
@@ -335,7 +372,7 @@ export default function EvalPage() {
                         onToggle={() => setOpenCase((current) => current === r.caseId + r.finishedAt ? null : r.caseId + r.finishedAt)}
                     />
                 ))}
-                {!results.length && !running && <p className="evalEmpty">No results yet. Choose how many cases and press “Run validation”.</p>}
+                {!shown.length && !running && <p className="evalEmpty">No results yet. Choose how many cases and press “Run validation”.</p>}
             </section>
             <footer className="evalFooter">{DATASET_CREDIT}. Answers come from the same realtime model and instructions as the app; a judge model ({"gpt-5.4-mini"}) compares them.</footer>
         </main>
@@ -401,7 +438,7 @@ function CaseBars({ runs, onOpen }: { runs: CaseRun[]; onOpen: (key: string) => 
 function CaseDetails({ run, open, live, onToggle }: { run: CaseRun; open: boolean; live?: boolean; onToggle: () => void }) {
     const s = stats([run]);
     return (
-        <article className={`evalCase${open ? " isOpen" : ""}`}>
+        <article className={`evalCase${open ? " isOpen" : ""}`} id={`case-${run.caseId}${run.finishedAt ?? ""}`}>
             <button type="button" className="evalCaseHead" onClick={onToggle} aria-expanded={open}>
                 <span>
                     <strong>{run.caseId}</strong> · {run.category} · played by {CHARACTER_BY_ID[run.character].name}

@@ -104,6 +104,20 @@
 .evalProgress { margin: 12px 0 0; padding: 8px 12px; border-radius: 8px; background: var(--surface-2); color: var(--text-secondary); font-size: 14px; }
 .evalProgress.isError { color: var(--critical); }
 
+.evalViews { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-top: 20px; padding: 4px; border: 1px solid var(--hairline); border-radius: 999px; background: var(--surface-1); }
+.evalViews button {
+    padding: 6px 14px;
+    border: 0;
+    border-radius: 999px;
+    background: none;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.evalViews button.isActive { background: var(--accent); color: white; }
+.evalRunNote { margin: 10px 0 0; color: var(--text-secondary); font-size: 13px; }
 .evalTiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
 .evalTile { display: grid; gap: 2px; padding: 14px 16px; border: 1px solid var(--hairline); border-radius: 12px; background: var(--surface-1); }
 .evalTileLabel { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
